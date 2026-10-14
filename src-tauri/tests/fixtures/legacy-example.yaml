@@ -1,0 +1,27 @@
+# Synthetic legacy-format fixture. Documentation addresses only; no real network data.
+routes:
+  - id: example-network
+    name: 示例网段
+    destination: 203.0.113.0
+    mask: 255.255.255.0
+    gateway: 192.0.2.1
+    persistent: true
+  - id: example-host-a
+    name: 示例主机 A
+    destination: 198.51.100.10
+    mask: 255.255.255.255
+    gateway: 192.0.2.1
+    persistent: false
+  - id: example-host-b
+    name: 示例主机 B
+    destination: 198.51.100.20
+    mask: 255.255.255.255
+    gateway: 192.0.2.1
+    persistent: true
+groups:
+  - id: example-all
+    name: 全部示例
+    routes: [example-network, example-host-a, example-host-b]
+  - id: example-hosts
+    name: 主机示例
+    routes: [example-host-b, example-host-a]

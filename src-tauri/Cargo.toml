@@ -1,0 +1,37 @@
+[package]
+name = "route-manager"
+version = "2.0.0"
+edition = "2021"
+description = "Portable Windows route table manager"
+
+[lib]
+name = "route_manager"
+path = "src/lib.rs"
+
+[[bin]]
+name = "RouteManager"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2", features = [], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+rusqlite = { version = "0.38", features = ["bundled", "backup"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+ipnet = { version = "2", features = ["serde"] }
+sha2 = "0.10"
+base64 = "0.22"
+encoding_rs = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
