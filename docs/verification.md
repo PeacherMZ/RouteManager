@@ -25,9 +25,15 @@
 
 - Windows 新装默认目录调整为 `C:\Program Files\RoutingTableManager`，已有安装沿用原目录。两种安装包重新构建、SHA-256 及运行副本一致性检查通过，安装/发布契约两项通过；未执行实际安装。
 
+## 2026-10-15：远端 CI 排查
+
+- macOS 15 Apple Silicon runner 已通过 18 项浏览器测试、48 项 Rust/原生契约测试、应用编译及 ad-hoc 签名检查。
+- 修复 Windows CI 创建本地中文快捷方式失败及 macOS 14 冻结 WebKit 的协议不兼容。
+- PKG 首轮发现 `--component-plist` 必须配合 `--root`，已改为独立内容目录打包，等待远端复验。
+
 ## 尚未完成的验证
 
-- 当前环境没有 macOS SDK/Apple Silicon，未执行原生助手编译、原生合成契约、PKG 构建、WKWebView 和实机写入验收。已将编译与契约加入 macOS CI，但未触发远端 Actions。
+- PKG 完整构建仍待复验；WKWebView 和 macOS 实机写入验收尚未完成。
 - 两平台真实路由、hosts 写入及重启恢复，Windows 跨账户 UAC，实际覆盖安装、卸载重装和无 WebView2 离线安装均待隔离环境验收。
 
 ## 验收边界

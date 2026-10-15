@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, mkdirSync, copyFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, copyFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -88,7 +88,15 @@ if (windows) {
   const component = join(staging, 'application.pkg');
   const plist = join(staging, 'components.plist');
   writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><array><dict><key>RootRelativeBundlePath</key><string>路由管理器.app</string><key>BundleIsRelocatable</key><false/><key>BundleIsVersionChecked</key><true/><key>BundleHasStrictIdentifier</key><true/><key>BundleOverwriteAction</key><string>upgrade</string></dict></array></plist>`);
-  run('/usr/bin/pkgbuild', ['--component', app, '--component-plist', plist, '--install-location', '/Applications', '--identifier', `${config.identifier}.pkg`, '--version', pkg.version, '--scripts', scripts, component]);
+  // Component properties require root mode. Stage only this signed app so
+  // earlier build products cannot accidentally become package payload.
+  const payload = mkdtempSync(join(staging, 'payload-'));
+  try {
+    run('/usr/bin/ditto', [app, join(payload, '路由管理器.app')]);
+    run('/usr/bin/pkgbuild', ['--root', payload, '--component-plist', plist, '--install-location', '/Applications', '--identifier', `${config.identifier}.pkg`, '--version', pkg.version, '--scripts', scripts, component]);
+  } finally {
+    rmSync(payload, { recursive: true, force: true });
+  }
   const distribution = join(staging, 'Distribution.xml');
   writeFileSync(distribution, `<?xml version="1.0" encoding="UTF-8"?>
 <installer-gui-script minSpecVersion="2">
