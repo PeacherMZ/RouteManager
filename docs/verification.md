@@ -29,11 +29,12 @@
 
 - macOS 15 Apple Silicon runner 已通过 18 项浏览器测试、48 项 Rust/原生契约测试、应用编译及 ad-hoc 签名检查。
 - 修复 Windows CI 创建本地中文快捷方式失败及 macOS 14 冻结 WebKit 的协议不兼容。
-- PKG 首轮发现 `--component-plist` 必须配合 `--root`，已改为独立内容目录打包，等待远端复验。
+- PKG 首轮发现 `--component-plist` 必须配合 `--root`，已改为独立内容目录打包并通过远端复验。
+- [运行 38714669133](https://github.com/PeacherMZ/routing-table-manager/actions/runs/38714669133) 的 Windows/macOS 作业均成功；Windows 两种 EXE、macOS PKG 及校验文件已上传。该运行来自 main，草稿发布任务按条件跳过。
 
 ## 尚未完成的验证
 
-- PKG 完整构建仍待复验；WKWebView 和 macOS 实机写入验收尚未完成。
+- WKWebView 和 macOS 实机写入验收尚未完成。
 - 两平台真实路由、hosts 写入及重启恢复，Windows 跨账户 UAC，实际覆盖安装、卸载重装和无 WebView2 离线安装均待隔离环境验收。
 
 ## 验收边界
