@@ -43,7 +43,9 @@ const release = join(process.env.CARGO_TARGET_DIR, target, 'release');
 if (windows) {
   const app = join(root, 'artifacts', 'app'); mkdirSync(app, { recursive: true });
   copyFileSync(join(release, 'RouteManager.exe'), join(app, 'RouteManager.exe'));
-  run('pwsh', ['-File', 'scripts/Create-Shortcut.ps1']);
+  // A CI runner has no local user launch entry; WScript shortcut saving also
+  // depends on its locale. Preserve the shortcut only for local builds.
+  if (!process.env.CI) run('pwsh', ['-File', 'scripts/Create-Shortcut.ps1']);
 }
 if (windows && process.argv.includes('--app-only')) {
   console.log(`Application compiled; installer intentionally not generated: ${release}`);
