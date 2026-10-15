@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if /usr/bin/pgrep -x RouteManager >/dev/null 2>&1; then
+  echo '请先退出路由管理器，然后重新安装。' >&2
+  exit 1
+fi
+# No user data, routes, hosts, login items or daemons are touched by installation.
+exit 0

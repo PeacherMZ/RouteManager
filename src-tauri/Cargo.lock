@@ -2574,12 +2574,14 @@ dependencies = [
 
 [[package]]
 name = "route-manager"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "dirs",
  "encoding_rs",
  "ipnet",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2589,6 +2591,7 @@ dependencies = [
  "tauri-build",
  "tempfile",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

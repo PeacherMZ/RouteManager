@@ -2,6 +2,9 @@ use crate::model::{hash, HostsDocument};
 use std::path::{Path, PathBuf};
 
 pub fn system_hosts_path() -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    return Ok(PathBuf::from("/etc/hosts"));
+    #[cfg(windows)]
     Ok(
         PathBuf::from(std::env::var_os("SystemRoot").ok_or("找不到 Windows 目录")?)
             .join("System32/drivers/etc/hosts"),
@@ -27,7 +30,7 @@ fn ansi_encoding() -> Result<&'static encoding_rs::Encoding, String> {
     }
     #[cfg(not(windows))]
     {
-        Ok(encoding_rs::WINDOWS_1252)
+        Err("hosts 不是可无损识别的 Unicode 编码，未打开可写编辑".into())
     }
 }
 fn decode(bytes: &[u8]) -> Result<(String, String), String> {
@@ -142,6 +145,11 @@ pub fn save(
         .join("backups")
         .join(format!("hosts-{}.bak", uuid::Uuid::new_v4()));
     std::fs::copy(path, backup).map_err(|e| format!("备份 hosts 失败，未修改：{e}"))?;
+    #[cfg(target_os = "macos")]
+    if path == Path::new("/etc/hosts") {
+        crate::system::macos::replace_hosts(&bytes, expected)?;
+        return read(path);
+    }
     let temp = path.with_file_name(format!(".hosts-{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
         use std::io::Write;

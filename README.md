@@ -1,110 +1,90 @@
 # 路由管理器
 
-Windows 10/11 x64 桌面应用，采用 Tauri 2、Rust、React、Fluent UI 和 SQLite。启动时请求管理员权限，管理 IPv4 路由并只读展示 IPv6。
+Tauri 2 + Rust + React/Fluent UI + SQLite 桌面路由管理器。目标平台为 Windows 10/11 x64、macOS 13+ Apple Silicon；支持 IPv4 管理、IPv6 只读、配置与分组、操作预览、执行核验及 hosts 编辑。
 
-用于查看实际路由、维护配置与分组、预览并执行变更，以及编辑本机 hosts。系统变更需要确认，并在执行后重新核验。公开仓库仅包含源码和虚构测试数据，不附带个人路由配置、数据库或已编译程序。
+## 安装与升级
 
-## 运行
+在 GitHub Release 中下载对应安装包：
 
-构建完成后，双击根目录的 **路由管理器.lnk** 或 **启动路由管理器.cmd**。运行文件位于 `artifacts/app/RouteManager.exe`，数据保存在独立的 `data/` 目录。
+- Windows：推荐 `RouteManager_<版本>_windows_x64-online-setup.exe` 轻量包，已装 WebView2 时直接复用，缺失时需联网下载。无网络且未装 WebView2 时使用 `RouteManager_<版本>_windows_x64-setup.exe` 完整离线包。两者默认安装到 `C:\Program Files\RoutingTableManager`。已有安装的覆盖升级沿用原目录；若旧版使用中文目录，可先卸载应用（保留用户数据）再用新安装包安装。应用启动时请求 UAC，取消后不打开数据库或修改系统。
+- macOS：`RouteManager_<版本>_macos_arm64.pkg`，安装到 `/Applications/路由管理器.app`。查看和保存配置无需管理员权限；系统修改时弹出授权对话框，临时助手执行结束后退出。
 
-移动整个项目后，使用 CMD 入口启动；运行 `scripts/Create-Shortcut.ps1` 可修复 LNK 的绝对路径。目标电脑需要 WebView2 Runtime。运行程序不需要 Node、Rust 或编译工具。
+升级前退出程序，直接运行新版本安装包。安装器拒绝覆盖正在运行的应用和降级安装；升级、卸载均保留用户数据。不要同时运行不同版本访问同一数据目录。
 
-全新克隆默认使用空配置库。若首次启动前自行在 `legacy/routes.yaml` 放入兼容的旧版配置，程序会导入配置，**不会自动应用路由**。首次初始化后不会再次自动导入；后续可使用界面的 YAML 导入入口。`legacy/` 是本地私人目录，不随仓库分发。
+当前 Windows 包未签名；macOS 应用及助手使用 ad-hoc 签名，PKG 未签名、未公证，首次安装或打开可能需要系统安全设置放行。这不是 Developer ID 签名。正式签名接入见 [发布说明](docs/release.md)。
 
-## 使用
+## 用户数据
 
-- **当前路由**：实际活动与持久路由的合并视图。可按目标、网关、接口、地址族、管理归属筛选，点击目标查看详情。
-- **新增 / 修改 / 从系统移除**：先预览，确认后执行，完成后重新读取核验。IPv6 没有写入入口，后端也拒绝写入。
-- **纳入管理**：将选中实际路由保存到配置库，不修改系统。
-- **清除受管理路由**：只移除准确命中的活动与持久记录，保留配置及未命中路由。不是恢复出厂设置，也不等于恢复某个全机快照。
-- **配置库与分组**：保存、编辑或删除配置不会自动修改路由；应用配置或分组才会修改系统。组内顺序可调整。
-- **添加配置到分组**：在“全部配置”勾选一条或多条 → 点击“添加到分组” → 勾选目标分组（可多选）→“确认添加”。保留原分组，已有成员不重复添加，新成员追加到末尾。也可点击左侧目标分组 →“编辑分组”，勾选或取消成员并调整顺序 →“保存分组”。
-- **操作记录**：显示逐项结果、执行前后状态及失败恢复结果。批量部分失败不会显示整体成功。
-- **hosts**：保留原编码与换行，保存前备份并检查外部修改。
-- **设置**：浅色、深色、跟随系统；前台自动刷新可选关闭或 5/10/30 秒。
+| 平台 | 默认位置 |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\com.local.route-manager` |
+| macOS | `~/Library/Application Support/com.local.route-manager` |
 
-“本管理器管理”表示配置库命中，不证明路由最初由本程序添加。“系统自动 / 动态”根据系统协议判定；其他静态路由显示“其他 / 来源未知”。历史创建记录独立显示。旧配置匹配多个网卡时必须先选择接口，不能直接批量清除。
+路径由系统 API 获取，不硬编码用户名。Windows 在提权前保留启动者身份；通过另一管理员账户完成 UAC 时仍使用启动者目录。从已提权终端直接运行则使用该终端用户身份。
 
-旧版 route -p 的无接口持久记录会与唯一匹配的活动路由合并展示，删除仍精确定位原始记录。若多个接口共享同一无接口持久记录，会提示先检查持久记录，不能只绑定网卡就自动认领。
+- `routes.db`：配置、分组、设置、历史与创建证据。
+- `backups/`：数据库结构升级、导入和 hosts 保存前的备份。
+- `exports/`：YAML 导出；新版为 v3，兼容 v1/v2 导入。
+- `instance.lock`：由操作系统持有的数据库目录锁，崩溃后自动释放。
 
-## 开发与构建
+设置页显示实际目录。备份整个目录前先退出程序。数据库升级先备份再事务迁移；旧程序拒绝打开较新的结构，不会重置为空库。
 
-依赖：Windows x64、PowerShell 7（`pwsh`）、Node.js 24、`package.json` 指定版本的 pnpm 11、Rust MSVC 工具链、Microsoft C++ Build Tools、Windows SDK 和 WebView2 Runtime。系统自带的 Windows PowerShell 5.1 用于 NetTCPIP 适配和契约测试。构建脚本优先使用项目 `.tools/` 中的 Rust/MSVC 工具链，也支持全局安装；仓库不附带工具链或依赖。
+**不自动发现或迁移旧便携版 `data/`、`legacy/`。** 新安装首次启动为空配置，可手动导入已有 YAML。导入替换配置与分组，并先备份；不会应用系统路由。跨平台接口不能自动对应，应重新选择网卡；macOS 应用配置前需清除 Windows metric。
+
+开发构建使用 `com.local.route-manager.dev` 子目录。`--data-dir <绝对路径>` 可显式指定独立目录，用于测试或诊断。
+
+## 平台行为
+
+- 当前路由以系统读取结果为准；保存配置或分组不会隐式修改路由。
+- 系统修改先预览、执行前重读、串行执行、完成后核验；部分失败与恢复失败分别报告。
+- “受管理”仅表示配置命中，不证明创建来源。清除受管理路由保留配置及其他路由。
+- Windows 使用 NetTCPIP，并分别核验活动和持久记录；旧无接口持久记录仅在活动接口唯一时关联。
+- macOS 使用原生路由表与 SystemConfiguration 的网络服务 AdditionalRoutes。系统负责持久路由恢复，应用不创建开机任务、登录启动项或常驻服务。
+- macOS 没有 Windows metric 的对应编辑能力；没有唯一网络服务的接口只支持临时路由。作用域或服务存在歧义时拒绝猜测；含特殊属性的持久记录拒绝破坏性修改。
+- hosts 保存前备份和检查外部修改，保留编码、换行及平台文件元数据。
+
+## 开发与验证
+
+使用 Node.js 24、package.json 指定的 pnpm、Rust 1.99.0（与 CI 一致）。Windows 需要 MSVC、Windows SDK、PowerShell 7；macOS 需要 Xcode Command Line Tools，且打包必须在 macOS 上执行。
+
+```sh
+pnpm install --frozen-lockfile
+pnpm dev
+pnpm test
+pnpm build
+pnpm exec playwright install chromium webkit
+pnpm exec playwright test
+```
+
+浏览器 `/?demo=1` 为明确标注的虚构演示数据。Windows：
 
 ```powershell
-# 获取源码（克隆公开仓库无需 SSH 凭据）
-git clone https://github.com/PeacherMZ/routing-table-manager.git
-cd routing-table-manager
-
-# 安装前端依赖
-pnpm install --frozen-lockfile
-
-# 只预览界面（无系统权限；/?demo=1 使用明确标注的模拟数据）
-pnpm dev
-
-# Tauri 开发
-pwsh -File scripts/Dev.ps1
-
-# 测试并生成 EXE、运行目录和根目录快捷方式
+. ./scripts/Environment.ps1
+cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --locked
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/windows-adapter.ps1
 pwsh -File scripts/Build.ps1
 ```
 
-模拟模式只在开发构建启用；发布程序不提供模拟写入，也不会联网加载网页代码。
+macOS：
 
-```powershell
-# 前端逻辑测试
-pnpm test
-# Edge 浏览器交互测试和页面截图，不修改系统路由
-pnpm exec playwright test
-# Rust 测试：所有路由写入使用内存模拟器，hosts 使用临时文件
-. ./scripts/Environment.ps1
+```sh
 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --locked
-# Windows PowerShell 5.1 模拟适配器契约测试
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/windows-adapter.ps1
+node scripts/build.mjs
+pnpm desktop:dev
 ```
 
-测试不依赖本地 `legacy/` 或 `data/`；旧版迁移样例位于 `src-tauri/tests/fixtures/legacy-example.yaml`。演示与测试使用文档保留地址和合成 GUID，不能直接作为真实网络配置。
+统一打包入口为 scripts/build.mjs。安装包及 SHA-256 文件位于 artifacts/release/；Windows 本地运行副本位于 artifacts/app/RouteManager.exe，构建时同步根目录快捷方式。开发工具链优先复用 .tools/，不随仓库分发。
 
-需要本机诊断时，加载 `scripts/Environment.ps1` 后运行 `cargo run --manifest-path src-tauri/Cargo.toml --no-default-features --example inspect --locked -- <独立数据目录绝对路径>`。此工具只读系统路由，但会创建或迁移指定目录的数据库；省略目录会使用项目 `data/`。诊断输出可能包含本机信息，不能直接提交。
+仅编译应用可使用 Windows 的 `scripts/Build.ps1 -AppOnly`，或 `node scripts/build.mjs --app-only`；该模式不生成安装包。默认完整构建不会因网络失败而改为联网安装器。
 
-查看 [架构与接口](docs/architecture.md)、[验收说明](docs/acceptance.md) 和 [验证范围](docs/verification.md)。
+测试使用独立临时数据库、模拟路由和临时 hosts。原生助手的 self-test 只运行合成契约，不修改系统网络。诊断示例必须显式提供独立数据目录，不隐式读取旧数据。
 
-## 目录
+## 发布与验收
 
-| 路径 | 用途 |
-| --- | --- |
-| `src/` | React/TypeScript 界面、类型、演示数据 |
-| `src-tauri/` | Rust 后端、固定 PowerShell 脚本、数据库迁移与测试 |
-| `tests/` | 前端、浏览器和 PowerShell 契约测试 |
-| `scripts/` | 开发、构建、启动、清理工具 |
-| `docs/` | 架构和验收说明 |
-| `artifacts/`、`data/`、`legacy/`、`.tools/` | 仅本地使用，Git 忽略 |
+普通提交和 PR 执行两平台 CI；推送与应用版本一致的 vX.Y.Z 标签后，只有两平台测试、打包全部成功才创建 Release **草稿**，上传 EXE、PKG 和校验文件。人工完成实机、覆盖安装及重启验收后再公开发布。没有应用内自动更新。
 
-## 公开提交约定
+查看 [架构](docs/architecture.md)、[发布配置](docs/release.md)、[验收清单](docs/acceptance.md)、[本次验证范围](docs/verification.md)。模拟测试、浏览器 WebKit 测试和编译成功均不等价于 macOS 实机验收。
 
-- 不提交真实路由、hosts、内部域名、网卡或设备标识、个人路径、凭据、数据库、备份、运行截图或诊断日志。
-- `.gitignore` 排除私人目录、依赖、构建产物、本地代理状态与常见凭据文件；锁文件和应用图标属于源码资产，应保留。
-- 提交前检查 `git status --short`、`git diff --cached --stat`、`git diff --cached` 和 `git ls-files`；忽略规则不会移除已跟踪内容，也不能识别写入源码的秘密。
-- 新增示例使用虚构名称、文档保留地址（`192.0.2.0/24`、`198.51.100.0/24`、`203.0.113.0/24`、`2001:db8::/32`）及合成 GUID。不要强制加入被忽略的文件。
-- 发布问题报告或截图前同样要脱敏。完整开发约束见 [AGENTS.md](AGENTS.md)。
+## 公开仓库
 
-## 数据与备份
-
-- `data/routes.db`：配置、分组、设置、创建证据和操作记录。
-- `data/backups/`：数据库升级／导入前备份，以及 hosts 保存前的备份。
-- `data/exports/`：YAML 导出。新版含网卡 GUID、metric，导入兼容旧 destination/mask 格式。
-- 导入会**替换**当前配置和分组；先完整校验并备份，再事务提交。不会修改实际路由。
-- 备份整个 `data/` 前先退出程序。数据库较新时旧版程序拒绝降级打开。
-- `scripts/Clean.ps1` 默认清除前端和 Rust 构建产物，保留运行目录；`-AllBuildArtifacts` 连运行目录一起清理。两种方式均不会清理 `data/` 或 `legacy/`。
-- 本版管理本机默认网络隔离区，不覆盖容器等独立网络隔离区。
-
-## 常见问题
-
-**提示路由状态过期**：保留上次快照，但暂停界面的系统写入入口。检查管理员权限、Windows NetTCPIP/CIM 服务和网卡状态后刷新。
-
-**接口待确认**：在配置库编辑对应路由，选择实际网卡。应用时按 GUID 重新解析接口索引，避免网卡重编号导致误操作。
-
-**批量操作部分失败**：查看操作记录的逐项错误与当前快照。系统路由变化不是数据库事务，已经成功的条目仍会保留。静态路由替换失败会尝试恢复原记录；无法确认现场状态时不会覆盖其他记录。
-
-**系统自动路由重新出现**：DHCP、网络栈或其他软件可能自动生成路由。应用展示核验结果，不反复删除。
+仅提交源码、锁文件、应用图标及虚构测试数据。data/、legacy/、artifacts/、.tools/、安装包、截图、日志和诊断资料保持忽略；禁止提交真实路由、hosts、内部地址、设备标识、凭据或个人路径。提交和推送前检查完整暂存清单与差异，不使用强制添加绕过忽略规则。

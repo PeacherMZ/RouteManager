@@ -1,11 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use route_manager::{
-    db::Database, hosts, model::*, service::AppService, system::WindowsRouteSystem,
-};
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use route_manager::{db::Database, hosts, model::*, service::AppService, system::native_system};
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 type Shared = Arc<Mutex<AppService>>;
@@ -93,7 +88,10 @@ async fn get_settings(state: State<'_, Shared>) -> Result<serde_json::Value, Str
         "theme": app.db.get_setting("theme")?.unwrap_or(serde_json::json!("system")),
         "refresh_seconds": app.db.get_setting("refresh_seconds")?.unwrap_or(serde_json::json!(5)),
         "data_dir": app.db.data_dir,
-        "version": env!("CARGO_PKG_VERSION")
+        "version": env!("CARGO_PKG_VERSION"),
+        "backups_dir": app.db.data_dir.join("backups"),
+        "exports_dir": app.db.data_dir.join("exports"),
+        "platform": route_manager::system::platform_info()
     }))).await
 }
 #[tauri::command]
@@ -111,29 +109,6 @@ async fn save_setting(
         app.db.set_setting(&key, &value)
     })
     .await
-}
-fn data_dir() -> Result<PathBuf, String> {
-    let arguments: Vec<_> = std::env::args_os().collect();
-    if let Some(index) = arguments.iter().position(|a| a == "--data-dir") {
-        let path = PathBuf::from(arguments.get(index + 1).ok_or("--data-dir 后缺少目录")?);
-        if !path.is_absolute() {
-            return Err("--data-dir 必须是绝对路径".into());
-        }
-        return Ok(path);
-    }
-    if cfg!(debug_assertions) {
-        return Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../data"));
-    }
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-    let root = executable
-        .parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| p.parent())
-        .ok_or("无法定位项目数据目录")?;
-    if !root.join("legacy").is_dir() {
-        return Err("请使用项目根目录的启动入口，或通过 --data-dir 指定数据目录".into());
-    }
-    Ok(root.join("data"))
 }
 #[cfg(windows)]
 fn message(text: &str) {
@@ -155,51 +130,40 @@ fn message(text: &str) {
 #[cfg(not(windows))]
 fn message(text: &str) {
     eprintln!("{text}");
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("/usr/bin/osascript").args(["-e", "on run argv\n display alert \"路由管理器\" message (item 1 of argv) as critical\nend run", "--", text]).status();
+    }
 }
 
-#[cfg(windows)]
-fn single_instance() -> Result<*mut std::ffi::c_void, String> {
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn CreateMutexW(
-            attributes: *mut std::ffi::c_void,
-            owner: i32,
-            name: *const u16,
-        ) -> *mut std::ffi::c_void;
-        fn GetLastError() -> u32;
-    }
-    let name: Vec<u16> = "Local\\RouteManagerV2"
-        .encode_utf16()
-        .chain(Some(0))
-        .collect();
-    let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 1, name.as_ptr()) };
-    if handle.is_null() {
-        return Err("无法创建程序实例锁".into());
-    }
-    if unsafe { GetLastError() } == 183 {
-        return Err("路由管理器已经运行，请使用已打开的窗口".into());
-    }
-    Ok(handle)
-}
 fn main() {
-    #[cfg(windows)]
-    let _instance = match single_instance() {
-        Ok(handle) => handle,
+    match route_manager::startup::bootstrap() {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            message(&error);
+            return;
+        }
+    }
+    let directory = match route_manager::storage::data_dir() {
+        Ok(path) => path,
+        Err(error) => {
+            message(&error);
+            return;
+        }
+    };
+    let _instance = match route_manager::storage::InstanceLock::acquire(&directory) {
+        Ok(lock) => lock,
         Err(error) => {
             message(&error);
             return;
         }
     };
     let init = (|| -> Result<AppService, String> {
-        let directory = data_dir()?;
-        let legacy = directory
-            .parent()
-            .ok_or("数据目录无效")?
-            .join("legacy/routes.yaml");
-        let db = Database::open(&directory, Some(&legacy))?;
+        let db = Database::open(&directory, None)?;
         Ok(AppService {
             db,
-            system: Box::new(WindowsRouteSystem::default()),
+            system: native_system(),
             pending: None,
         })
     })();

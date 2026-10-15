@@ -10,17 +10,18 @@ use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
 };
-const GUID: &str = "11111111-1111-4111-8111-111111111111";
-const GUID2: &str = "22222222-2222-4222-8222-222222222222";
+const GUID: &str = "windows:11111111-1111-4111-8111-111111111111";
+const GUID2: &str = "windows:22222222-2222-4222-8222-222222222222";
 fn config() -> RouteConfig {
     RouteConfig {
         id: "route-a".into(),
         name: "测试路由".into(),
         prefix: "203.0.113.0/24".into(),
         gateway: "192.0.2.1".into(),
-        interface_guid: Some(GUID.into()),
+        interface_id: Some(GUID.into()),
         metric: Some(10),
         persistent: true,
+        scope: None,
         comment: "备注".into(),
     }
 }
@@ -34,14 +35,16 @@ fn interface(guid: &str, index: u32) -> NetworkInterface {
     }
 }
 fn record(config: &RouteConfig, store: &str) -> RouteRecord {
-    let guid = config.interface_guid.clone().unwrap_or(GUID.into());
+    let guid = config.interface_id.clone().unwrap_or(GUID.into());
     let index = if guid == GUID { 7 } else { 8 };
     RouteRecord {
+        native: None,
+        service_group: false,
         family: "IPv4".into(),
         prefix: config.prefix.clone(),
         gateway: config.gateway.clone(),
-        interface_guid: guid,
-        associated_interface_guid: None,
+        interface_id: guid,
+        associated_interface_id: None,
         interface_index: index,
         interface_alias: format!("网卡{index}"),
         route_metric: config.metric.unwrap_or(256),
@@ -70,6 +73,27 @@ struct FakeState {
     leave_persistent: bool,
 }
 struct Fake(Arc<Mutex<FakeState>>);
+struct DeniedAuthorization(Fake, Arc<Mutex<usize>>);
+impl RouteSystem for DeniedAuthorization {
+    fn snapshot(&mut self) -> Result<SystemSnapshot, String> {
+        self.0.snapshot()
+    }
+    fn add(&mut self, target: &RouteConfig) -> Result<(), String> {
+        self.0.add(target)
+    }
+    fn remove(&mut self, records: &[RouteRecord]) -> Result<(), String> {
+        self.0.remove(records)
+    }
+    fn metric(&mut self, records: &[RouteRecord], metric: u16) -> Result<(), String> {
+        self.0.metric(records, metric)
+    }
+    fn begin_operation(&mut self) -> Result<(), String> {
+        Err("授权已取消".into())
+    }
+    fn end_operation(&mut self) {
+        *self.1.lock().unwrap() += 1;
+    }
+}
 impl RouteSystem for Fake {
     fn snapshot(&mut self) -> Result<SystemSnapshot, String> {
         let mut s = self.0.lock().unwrap();
@@ -149,17 +173,93 @@ fn request(action: &str) -> PlanRequest {
         save_config: false,
     }
 }
+fn macos_service_routes() -> (RouteConfig, SystemSnapshot) {
+    let mut c = config();
+    c.interface_id = Some("macos:en0:11111111-1111-4111-8111-111111111111".into());
+    c.metric = None;
+    let routes = [
+        ("ActiveStore", "global"),
+        ("ActiveStore", "scoped"),
+        ("PersistentStore", "ambiguous"),
+    ]
+    .into_iter()
+    .map(|(store, scope)| {
+        let mut r = record(&c, store);
+        r.native = Some(NativeRoute {
+            scope: scope.into(),
+            flags: 0,
+        });
+        r
+    })
+    .collect();
+    let mut raw = SystemSnapshot {
+        routes,
+        interfaces: vec![interface(c.interface_id.as_deref().unwrap(), 8)],
+    };
+    normalize_snapshot(&mut raw).unwrap();
+    (c, raw)
+}
+#[test]
+fn native_service_preview_and_clear_include_all_physical_scopes() {
+    let (c, raw) = macos_service_routes();
+    let snapshot = build_snapshot(&raw, &library(c.clone()), &HashSet::new());
+    assert_eq!(snapshot.routes.len(), 1);
+    assert_eq!(snapshot.routes[0].records.len(), 3);
+    assert_eq!(snapshot.matches[0].state, "active");
+    let (_dir, mut app, state) = service(raw, library(c));
+    let plan = app.plan(request("clear_managed")).unwrap();
+    assert_eq!(plan.items[0].before.len(), 3);
+    assert_eq!(app.execute(&plan.id).unwrap().status, "success");
+    assert!(state.lock().unwrap().raw.routes.is_empty());
+    assert_eq!(app.db.library().unwrap().routes.len(), 1);
+}
+#[test]
+fn native_service_regrouping_does_not_hide_active_residuals() {
+    let (_, mut raw) = macos_service_routes();
+    let before = raw.routes.clone();
+    raw.routes.retain(|r| r.store == "ActiveStore");
+    normalize_snapshot(&mut raw).unwrap();
+    assert!(raw.routes.iter().all(|r| !r.service_group));
+    assert_eq!(remaining_before(&raw, &before).len(), 2);
+}
+#[test]
+fn narrow_scope_config_cannot_claim_an_entire_persistent_service() {
+    let (mut c, raw) = macos_service_routes();
+    c.persistent = false;
+    c.scope = Some("scoped".into());
+    let snapshot = build_snapshot(&raw, &library(c), &HashSet::new());
+    assert_eq!(snapshot.matches[0].state, "ambiguous");
+    assert!(snapshot.routes[0].config_ids.is_empty());
+}
+#[test]
+fn authorization_cancellation_logs_failure_without_writes_and_closes_session() {
+    let c = config();
+    let (_dir, mut app, state) = service(raw_with(&c), library(c));
+    let ends = Arc::new(Mutex::new(0));
+    app.system = Box::new(DeniedAuthorization(Fake(state.clone()), ends.clone()));
+    let plan = app.plan(request("clear_managed")).unwrap();
+    let result = app.execute(&plan.id).unwrap();
+    assert_eq!(result.status, "failed");
+    assert!(result
+        .items
+        .iter()
+        .all(|i| i.message.contains("授权") && i.status == "failed"));
+    assert_eq!(state.lock().unwrap().writes, 0);
+    assert_eq!(*ends.lock().unwrap(), 1);
+    assert_eq!(app.db.history().unwrap()[0].status, "failed");
+}
 #[test]
 fn legacy_migration_preserves_routes_and_group_order_and_is_idempotent() {
     let directory = tempfile::tempdir().unwrap();
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/legacy-example.yaml");
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/legacy-example.yaml");
     let mut db = Database::open(directory.path(), Some(&source)).unwrap();
     let lib = db.library().unwrap();
     assert_eq!(lib.routes.len(), 3);
     assert_eq!(lib.groups.len(), 2);
     assert_eq!(lib.routes[0].prefix, "203.0.113.0/24");
     assert_eq!(lib.routes[0].gateway, "192.0.2.1");
-    assert_eq!(lib.routes[0].interface_guid, None);
+    assert_eq!(lib.routes[0].interface_id, None);
     assert_eq!(lib.groups[0].routes[0], "example-network");
     assert_eq!(
         lib.groups[1].routes,
@@ -197,7 +297,7 @@ fn invalid_import_is_atomic() {
 }
 #[test]
 fn noncontiguous_mask_is_rejected() {
-    assert!(parse_yaml("routes:\n- id: a\n  destination: 1.2.3.0\n  mask: 255.0.255.0\n  gateway: 1.2.3.1\ngroups: []").is_err());
+    assert!(parse_yaml("routes:\n- id: a\n  destination: 203.0.113.0\n  mask: 255.0.255.0\n  gateway: 192.0.2.1\ngroups: []").is_err());
 }
 #[test]
 fn normalization_and_ipv6_guard() {
@@ -252,10 +352,10 @@ fn exact_match_separates_other_gateway() {
 #[test]
 fn legacy_multi_interface_match_is_ambiguous() {
     let mut c = config();
-    c.interface_guid = None;
+    c.interface_id = None;
     let mut raw = raw_with(&c);
     let mut second = c.clone();
-    second.interface_guid = Some(GUID2.into());
+    second.interface_id = Some(GUID2.into());
     raw.routes.push(record(&second, "ActiveStore"));
     let snapshot = build_snapshot(&raw, &library(c), &HashSet::new());
     assert_eq!(snapshot.matches[0].state, "ambiguous");
@@ -451,7 +551,7 @@ fn read_failure_never_produces_success() {
 #[test]
 fn new_route_requires_unique_interface_and_logs_creation() {
     let mut c = config();
-    c.interface_guid = None;
+    c.interface_id = None;
     let (_dir, mut app, state) = service(
         SystemSnapshot {
             routes: vec![],
@@ -527,7 +627,7 @@ fn legacy_persistent(raw: &mut SystemSnapshot) {
         .find(|r| r.store == "PersistentStore")
         .unwrap();
     persistent.interface_index = 0;
-    persistent.interface_guid.clear();
+    persistent.interface_id.clear();
     persistent.interface_alias = "iftype0_0".into();
     persistent.protocol.clear();
     persistent.rollback_safe = false;
@@ -535,7 +635,7 @@ fn legacy_persistent(raw: &mut SystemSnapshot) {
 #[test]
 fn legacy_unbound_persistent_associates_only_with_unique_active_interface() {
     let mut c = config();
-    c.interface_guid = None;
+    c.interface_id = None;
     c.metric = None;
     let mut raw = raw_with(&c);
     legacy_persistent(&mut raw);
@@ -550,13 +650,13 @@ fn legacy_unbound_persistent_associates_only_with_unique_active_interface() {
         .find(|r| r.store == "PersistentStore")
         .unwrap();
     assert_eq!(persistent.interface_index, 0);
-    assert_eq!(persistent.interface_guid, "");
-    assert_eq!(persistent.associated_interface_guid.as_deref(), Some(GUID));
+    assert_eq!(persistent.interface_id, "");
+    assert_eq!(persistent.associated_interface_id.as_deref(), Some(GUID));
 }
 #[test]
 fn legacy_unbound_persistent_clear_removes_real_ifindex_zero_record() {
     let mut c = config();
-    c.interface_guid = None;
+    c.interface_id = None;
     let mut raw = raw_with(&c);
     legacy_persistent(&mut raw);
     let (_dir, mut app, state) = service(raw, library(c));
@@ -570,7 +670,7 @@ fn legacy_unbound_persistent_clear_removes_real_ifindex_zero_record() {
 #[test]
 fn persistent_left_after_active_delete_is_failed_even_when_association_disappears() {
     let mut c = config();
-    c.interface_guid = None;
+    c.interface_id = None;
     let mut raw = raw_with(&c);
     legacy_persistent(&mut raw);
     let (_dir, mut app, state) = service(raw, library(c));
@@ -587,7 +687,7 @@ fn shared_unbound_persistent_is_not_claimed_even_with_a_bound_config() {
     let mut raw = raw_with(&c);
     legacy_persistent(&mut raw);
     let mut second = c.clone();
-    second.interface_guid = Some(GUID2.into());
+    second.interface_id = Some(GUID2.into());
     raw.routes.push(record(&second, "ActiveStore"));
     let selected = raw.routes[0].key();
     let (_dir, mut app, state) = service(raw, library(c));

@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "targets": ["app"],
+    "icon": ["icons/icon.icns"],
+    "resources": { "../artifacts/native/route-manager-helper": "route-manager-helper" },
+    "macOS": { "minimumSystemVersion": "13.0", "signingIdentity": "-" }
+  }
+}

@@ -27,7 +27,7 @@ impl Database {
             .connection
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 1 {
+        if version > 2 {
             return Err("数据库版本比本程序更新，不能降级打开".into());
         }
         if version == 0 {
@@ -35,6 +35,36 @@ impl Database {
             db.connection
                 .execute_batch(include_str!("../migrations/001.sql"))
                 .map_err(|e| e.to_string())?;
+        }
+        if version < 2 {
+            db.backup("before-v2")?;
+            let mut library = db.library()?;
+            validate_library(&mut library)?;
+            let tx = db.connection.transaction().map_err(|e| e.to_string())?;
+            write_library(&tx, &library)?;
+            let keys: Vec<String> = {
+                let mut statement = tx
+                    .prepare("SELECT route_key FROM created_routes")
+                    .map_err(|e| e.to_string())?;
+                let rows = statement
+                    .query_map([], |r| r.get(0))
+                    .map_err(|e| e.to_string())?;
+                rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?
+            };
+            for key in keys {
+                if let Some((head, id)) = key.rsplit_once('|') {
+                    if let Ok(id) = crate::identity::normalize(id) {
+                        tx.execute(
+                            "UPDATE OR IGNORE created_routes SET route_key=?1 WHERE route_key=?2",
+                            params![format!("{head}|{id}"), key],
+                        )
+                        .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            tx.execute_batch("PRAGMA user_version=2;")
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
         }
         if db.get_setting("legacy_imported")?.is_none() {
             let source = legacy_yaml.filter(|p| p.exists());
@@ -146,7 +176,7 @@ impl Database {
     pub fn export(&self) -> Result<String, String> {
         let library = self.library()?;
         let document = ExportDocument {
-            version: 2,
+            version: 3,
             routes: library.routes,
             groups: library.groups,
         };
@@ -273,12 +303,14 @@ struct ImportRoute {
     #[serde(default)]
     mask: Option<String>,
     gateway: String,
-    #[serde(default)]
-    interface_guid: Option<String>,
+    #[serde(default, alias = "interface_guid")]
+    interface_id: Option<String>,
     #[serde(default)]
     metric: Option<u16>,
     #[serde(default)]
     persistent: bool,
+    #[serde(default)]
+    scope: Option<String>,
     #[serde(default)]
     comment: String,
 }
@@ -288,7 +320,7 @@ pub fn parse_yaml(text: &str) -> Result<Library, String> {
     }
     let document: ImportDocument = serde_yaml::from_str(text.trim_start_matches('\u{feff}'))
         .map_err(|e| format!("YAML 格式错误：{e}"))?;
-    if document.version.is_some_and(|v| v != 1 && v != 2) {
+    if document.version.is_some_and(|v| !(1..=3).contains(&v)) {
         return Err("不支持的 YAML 版本".into());
     }
     let mut routes = Vec::new();
@@ -320,9 +352,10 @@ pub fn parse_yaml(text: &str) -> Result<Library, String> {
             },
             prefix,
             gateway: route.gateway,
-            interface_guid: route.interface_guid,
+            interface_id: route.interface_id,
             metric: route.metric,
             persistent: route.persistent,
+            scope: route.scope,
             comment: route.comment,
         });
     }

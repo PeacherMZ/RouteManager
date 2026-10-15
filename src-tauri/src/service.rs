@@ -129,7 +129,10 @@ impl AppService {
         for item in &items {
             check_persistent_scope(item, &raw)?;
             let identity = if let Some(t) = &item.target {
-                format!("{}|{}|{:?}", t.prefix, t.gateway, t.interface_guid)
+                format!(
+                    "{}|{}|{:?}|{:?}",
+                    t.prefix, t.gateway, t.interface_id, t.scope
+                )
             } else {
                 item.before[0].key()
             };
@@ -148,6 +151,11 @@ impl AppService {
         Ok(plan)
     }
     pub fn execute(&mut self, plan_id: &str) -> Result<OperationResult, String> {
+        let result = self.execute_inner(plan_id);
+        self.system.end_operation();
+        result
+    }
+    fn execute_inner(&mut self, plan_id: &str) -> Result<OperationResult, String> {
         let plan = self.pending.take().ok_or("预览已失效，请重新预览")?;
         if plan.id != plan_id {
             return Err("预览已被更新，请重新确认".into());
@@ -187,6 +195,18 @@ impl AppService {
         }
         self.db.record(&result)?;
         let read_only = plan.items.iter().all(|item| item.action == "skip");
+        if !read_only {
+            if let Err(error) = self.system.begin_operation() {
+                for item in &mut result.items {
+                    item.status = "failed".into();
+                    item.message = format!("系统授权未完成，未执行变更：{error}");
+                }
+                result.status = "failed".into();
+                result.finished_at = now();
+                self.db.record(&result)?;
+                return Ok(result);
+            }
+        }
         for (index, item) in plan.items.iter().enumerate() {
             result.items[index].status = "running".into();
             self.db.record(&result)?;
@@ -329,7 +349,7 @@ impl AppService {
     fn recover_static(&mut self, item: &PlanItem) -> String {
         if item.before.iter().any(|r| {
             !matches!(r.protocol.to_lowercase().as_str(), "netmgmt" | "3")
-                || r.interface_guid.is_empty()
+                || r.interface_id.is_empty()
                 || !r.rollback_safe
         }) {
             return "未自动恢复：原记录不是可安全重建的静态路由，请根据记录人工检查".into();
@@ -357,9 +377,10 @@ impl AppService {
                 name: "恢复原路由".into(),
                 prefix: old.prefix.clone(),
                 gateway: old.gateway.clone(),
-                interface_guid: Some(old.interface_guid.clone()),
+                interface_id: Some(old.interface_id.clone()),
                 metric: Some(old.route_metric),
                 persistent,
+                scope: None,
                 comment: String::new(),
             };
             self.system.add(&original)?;
@@ -402,17 +423,17 @@ fn resolve_interface(
     target: &mut RouteConfig,
     before: &[RouteRecord],
 ) -> Result<(), String> {
-    if target.interface_guid.is_none() && !before.is_empty() && !before[0].interface_guid.is_empty()
-    {
-        target.interface_guid = Some(before[0].interface_guid.clone());
+    if target.interface_id.is_none() && !before.is_empty() && !before[0].interface_id.is_empty() {
+        target.interface_id = Some(before[0].interface_id.clone());
     }
-    if target.interface_guid.is_none() {
+    if target.interface_id.is_none() {
         let gateway: std::net::Ipv4Addr = target.gateway.parse().map_err(|_| "IPv4 网关无效")?;
         let candidates: Vec<_> = raw
             .interfaces
             .iter()
             .filter(|interface| {
                 interface.status == "Up"
+                    && !interface.guid.is_empty()
                     && gateway != std::net::Ipv4Addr::UNSPECIFIED
                     && interface.addresses.iter().any(|address| {
                         address
@@ -427,13 +448,17 @@ fn resolve_interface(
                 target.name
             ));
         }
-        target.interface_guid = Some(candidates[0].guid.clone());
+        target.interface_id = Some(candidates[0].guid.clone());
     }
     let interface = raw
         .interfaces
         .iter()
-        .find(|i| Some(&i.guid) == target.interface_guid.as_ref())
+        .find(|i| Some(&i.guid) == target.interface_id.as_ref())
         .ok_or("配置中的网卡不存在，请重新选择")?;
+    crate::identity::validate_target(&interface.guid, target.metric, target.persistent)?;
+    if !crate::identity::is_macos(&interface.guid) && target.scope.is_some() {
+        return Err("Windows 不支持 macOS 路由作用域，请清除作用域后重试".into());
+    }
     if interface.status != "Up" {
         return Err(format!("接口 {} 当前未连接", interface.alias));
     }
@@ -447,7 +472,31 @@ fn make_upsert(
 ) -> Result<PlanItem, String> {
     normalize_config(&mut target)?;
     resolve_interface(raw, &mut target, &before)?;
+    if target
+        .interface_id
+        .as_deref()
+        .is_some_and(crate::identity::is_macos)
+        && !target.persistent
+        && target.scope.is_none()
+    {
+        target.scope = Some("unscoped".into());
+    }
     let existing_target = target_records(raw, &target);
+    if target.scope.is_some()
+        && before.is_empty()
+        && existing_target.iter().any(|r| r.service_group)
+    {
+        return Err("此目标属于原生持久服务，请从当前路由编辑完整记录并确认全部作用域影响".into());
+    }
+    if existing_target
+        .iter()
+        .map(|r| r.key())
+        .collect::<HashSet<_>>()
+        .len()
+        > 1
+    {
+        return Err("目标存在多个路由作用域或网络服务，不能隐式选择或覆盖".into());
+    }
     if before.is_empty() {
         before = existing_target.clone();
     } else if !existing_target.is_empty() && existing_target[0].key() != before[0].key() {
@@ -462,9 +511,20 @@ fn make_upsert(
     let same_key = !before.is_empty()
         && before[0].prefix == target.prefix
         && before[0].gateway == target.gateway
-        && target.interface_guid.as_deref() == Some(before[0].logical_guid());
+        && target.interface_id.as_deref() == Some(before[0].logical_guid())
+        && target
+            .scope
+            .as_deref()
+            .is_none_or(|scope| before[0].native.as_ref().is_some_and(|n| n.scope == scope));
     let already_satisfied = same_key && target_satisfied(raw, &target);
-    if target.metric.is_none() && !already_satisfied && !before.is_empty() {
+    if !target
+        .interface_id
+        .as_deref()
+        .is_some_and(crate::identity::is_macos)
+        && target.metric.is_none()
+        && !already_satisfied
+        && !before.is_empty()
+    {
         target.metric = Some(
             before
                 .iter()

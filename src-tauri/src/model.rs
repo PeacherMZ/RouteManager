@@ -6,12 +6,14 @@ pub struct RouteConfig {
     pub name: String,
     pub prefix: String,
     pub gateway: String,
-    #[serde(default)]
-    pub interface_guid: Option<String>,
+    #[serde(default, alias = "interface_guid")]
+    pub interface_id: Option<String>,
     #[serde(default)]
     pub metric: Option<u16>,
     #[serde(default)]
     pub persistent: bool,
+    #[serde(default)]
+    pub scope: Option<String>,
     #[serde(default)]
     pub comment: String,
 }
@@ -41,9 +43,10 @@ pub struct RouteRecord {
     pub prefix: String,
     pub gateway: String,
     pub interface_index: u32,
-    pub interface_guid: String,
-    #[serde(default)]
-    pub associated_interface_guid: Option<String>,
+    #[serde(alias = "interface_guid")]
+    pub interface_id: String,
+    #[serde(default, alias = "associated_interface_guid")]
+    pub associated_interface_id: Option<String>,
     pub interface_alias: String,
     pub route_metric: u16,
     pub interface_metric: u32,
@@ -51,23 +54,39 @@ pub struct RouteRecord {
     #[serde(default)]
     pub rollback_safe: bool,
     pub store: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<NativeRoute>,
+    #[serde(default)]
+    pub service_group: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NativeRoute {
+    pub scope: String,
+    pub flags: u32,
 }
 impl RouteRecord {
     pub fn logical_guid(&self) -> &str {
-        self.associated_interface_guid
+        self.associated_interface_id
             .as_deref()
-            .unwrap_or(&self.interface_guid)
+            .unwrap_or(&self.interface_id)
     }
     pub fn key(&self) -> String {
         let interface = if self.logical_guid().is_empty() {
             format!("index:{}", self.interface_index)
+        } else if crate::identity::is_macos(self.logical_guid()) {
+            self.logical_guid().to_string()
         } else {
             self.logical_guid().to_lowercase()
         };
-        format!(
+        let key = format!(
             "{}|{}|{}|{}",
             self.family, self.prefix, self.gateway, interface
-        )
+        );
+        match &self.native {
+            Some(_) if self.service_group => format!("{key}|service"),
+            Some(native) => format!("{key}|{}", native.scope),
+            None => key,
+        }
     }
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $executable)) {
     exit 1
 }
 try {
-    Start-Process -FilePath $executable -ArgumentList @('--data-dir',('"' + (Join-Path $projectRoot 'data') + '"')) -WorkingDirectory $projectRoot -Verb RunAs
+    Start-Process -FilePath $executable -WorkingDirectory $projectRoot
 } catch {
     if ($_.Exception.NativeErrorCode -eq 1223) { Write-Host 'Administrator permission was cancelled. No routes were changed.'; exit 0 }
     throw

@@ -7,7 +7,7 @@
 - `routes.rs`：纯函数规范化、校验、匹配和状态计算。
 - `db.rs` + `migrations/`：SQLite、版本迁移、旧 YAML 转换、备份及操作记录。
 - `service.rs`：系统变更规划、预条件检查、串行执行、核验及受控恢复。
-- `system.rs` + `powershell/routes.ps1`：Windows NetTCPIP 适配器；测试使用同一接口的内存实现。
+- `system.rs` 定义公共适配接口；`system/windows.rs` + `powershell/routes.ps1` 保留 Windows NetTCPIP 契约；`system/macos.rs` + `macos/helper.m` 实现 macOS 原生适配；测试使用同一接口的内存实现。
 - `hosts.rs`：编码保留、原文件指纹校验、备份和 Windows 原子替换。
 
 ## 系统边界
@@ -16,13 +16,13 @@ Tauri 仅注册固定命令：get_snapshot、get_library、save_library、previe
 
 所有文件路径由 Rust 确定，前端仅提交文件内容或业务参数。PowerShell 脚本在编译期嵌入；采用固定 UTF-16 EncodedCommand 和 UTF-8 JSON stdin，不把用户输入拼成脚本。桌面端复用一个隐藏的私有 PowerShell 进程，以单行 JSON 顺序请求/响应，无监听端口；CIM 每次重新查询。管道读写在线程中执行，45 秒超时后销毁进程并报告不确定状态，不自动重放请求。下次请求重建进程；普通业务错误通过 JSON 返回，可继续使用进程。错误流不入协议，避免阻塞；关闭时释放子进程及线程。脚本保留单次 stdin 模式用于诊断。
 
-发布版 CSP 仅允许本地资源与 Tauri IPC，没有通用 shell 插件、远程页面或远程 SQL 权限。清除、编辑和新增在 Rust 和 PowerShell 两层限制为 IPv4。Windows manifest 为 requireAdministrator；本机同一会话中只允许一个管理器实例。
+发布版 CSP 仅允许本地资源与 Tauri IPC，没有通用 shell 插件、远程页面或远程 SQL 权限。清除、编辑和新增在 Rust 和 PowerShell 两层限制为 IPv4。Windows manifest 为 asInvoker，启动引导先解析原用户目录再立即通过 UAC 重新启动管理员界面；取消授权不会创建数据库。目录锁阻止同一数据目录多开。macOS 仅系统修改时授权临时助手。
 
 ## 路由身份与状态
 
-合并键为：地址族 + 规范化目标前缀 + 网关 + 接口 GUID。系统没有 GUID 的只读记录退回接口索引识别；缺少可靠网卡信息时不能用于新建路由。活动与持久记录分别保留自己的 metric 和协议。
+合并键为：地址族 + 规范化目标前缀 + 网关 + 接口标识（Windows 为 windows:GUID，macOS 为 macos:BSD名:服务UUID 或 macos:BSD名:-）。系统没有 GUID 的只读记录退回接口索引识别；缺少可靠网卡信息时不能用于新建路由。活动与持久记录分别保留自己的 metric 和协议。
 
-配置有 GUID 时准确匹配；旧配置没有 GUID 时仅在目标与网关唯一命中一个接口时关联，多个接口命中则标记 ambiguous。新建缺少 GUID 时只允许根据网关所在本地 IPv4 网段唯一推断网卡，否则要求选择。
+配置有接口标识时准确匹配；旧配置没有 GUID 时仅在目标与网关唯一命中一个接口时关联，多个接口命中则标记 ambiguous。新建缺少 GUID 时只允许根据网关所在本地 IPv4 网段唯一推断网卡，否则要求选择。
 
 配置状态：active、inactive、persistent_only、drifted、ambiguous。持久属性与显式 metric 不同属于 drifted；未指定 metric 时不强制改写已有数值。
 
@@ -50,6 +50,24 @@ Tauri 仅注册固定命令：get_snapshot、get_library、save_library、previe
 
 ## 存储
 
-SQLite 使用外键、事务、完整同步和版本号。配置、分组及有序成员独立存储；操作结果保留 before/after、错误和恢复说明。历史页面加载最近 500 次，数据库仍保留全部记录。legacy_imported 标记与首批配置同一事务提交。数据库升级或导入前使用 SQLite backup API 生成一致备份。
+SQLite 使用外键、事务、完整同步和版本号。配置、分组及有序成员独立存储；操作结果保留 before/after、错误和恢复说明。历史页面加载最近 500 次，数据库仍保留全部记录。桌面启动不扫描或导入旧目录；仅显式 YAML 导入。结构 v2 迁移旧接口标识并保留配置和历史，迁移前备份、事务提交。数据库升级或导入前使用 SQLite backup API 生成一致备份。
 
 hosts 支持 UTF-8、UTF-8 BOM、UTF-16 LE/BE 和可识别系统 ANSI 代码页；无法无损转换时拒绝写入。保存保留换行，使用 ReplaceFileW 保留 Windows 元数据。
+
+## macOS 原生适配与权限
+
+活动记录通过 NET_RT_DUMP2 读取，接口通过 getifaddrs 与当前网络位置的 SystemConfiguration 服务关联。接口身份与 native.scope 区分 scoped/unscoped；无法唯一对应的服务不用于自动推断。物理持久记录核验不依赖其临时活动作用域关联，避免漏报残留。
+
+持久记录只读取网络服务 Setup 配置的 AdditionalRoutes，不把 DHCP State 路由伪装成持久配置。修改使用 SCPreferences 锁，重读完整字典，只增删精确三元组，保留其他条目与属性，提交并通知 configd。遇到重复或特殊属性拒绝修改；执行后仅轮询真实快照，不重放写入。
+
+macOS GUI 不提权。固定 AppleScript 只负责授权启动原生助手，业务请求通过用户私有目录中的 Unix socket 传输 JSON；助手检查 peer UID、PID 和同一应用包主程序路径，GUI 检查助手 root 身份。助手只开放 add/remove/hosts，IPv6、metric、任意文件路径或命令均不可写。请求有大小、I/O 和执行时间上限；连接中断报告结果未知。每批操作结束关闭连接，助手退出，无 launchd/登录启动项。
+
+系统 hosts 固定为 /etc/hosts（助手使用 /private/etc/hosts），备份由普通用户进程保存。助手验证指纹和 inode，保留属主、权限及其他元数据，原子替换后重新读取。临时测试文件不走提权路径。
+
+## 用户目录和接口兼容
+
+正式标识固定为 com.local.route-manager。Windows 使用启动者的 Known Folder LocalAppData，macOS 使用用户 Application Support；开发版追加 .dev。安装包只操作应用目录，用户目录不属于卸载范围。显式 --data-dir 仅接受绝对路径。
+
+IPC RouteConfig.interface_id 使用平台限定字符串，兼容反序列化旧 interface_guid；NetworkInterface.guid 字段保留线协议名称，但值同样为平台限定标识。RouteConfig.scope 保留 macOS 临时路由的 scoped/unscoped，持久路由作用域由系统网络服务决定。RouteRecord.native 保存 macOS flags/scope；旧记录缺省为 None。Settings 新增 platform（os/route_write/persistent_routes/metric/privilege）、backups_dir、exports_dir。YAML 导出 v3，导入兼容 v1/v2/v3；跨平台绑定不猜测替换。
+
+Windows 内部适配器在 IPC 新模型与既有 PowerShell GUID 字段之间转换，固定脚本仍只接收 Windows 原生 UUID。macOS 不使用 Windows metric，UI 显示不适用，后端拒绝不兼容目标。

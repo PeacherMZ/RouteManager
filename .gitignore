@@ -105,3 +105,9 @@ id_ed25519*
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Platform installers and native bundles
+*.pkg
+*.dmg
+*.app/
+/src-tauri/icons/icon.icns

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { activeRecord, filterRoutes, fromRoute, persistence, validateDraft } from '../src/domain';
 import type { Library, RouteConfig, RouteView } from '../src/types';
-const config: RouteConfig = {id:'c',name:'示例网络',prefix:'203.0.113.0/25',gateway:'192.0.2.1',interface_guid:null,metric:null,persistent:true,comment:''};
+const config: RouteConfig = {id:'c',name:'示例网络',prefix:'203.0.113.0/25',gateway:'192.0.2.1',interface_id:null,metric:null,persistent:true,comment:''};
 const library: Library = {routes:[config],groups:[]};
 const row: RouteView = {key:'r',config_ids:['c'],ambiguous_config_ids:[],ownership:'managed',created_by_app:false,records:[{
-  family:'IPv4',prefix:config.prefix,gateway:config.gateway,interface_index:7,interface_guid:'guid',interface_alias:'Ethernet',route_metric:10,interface_metric:25,protocol:'NetMgmt',store:'ActiveStore',
+  family:'IPv4',prefix:config.prefix,gateway:config.gateway,interface_index:7,interface_id:'guid',interface_alias:'Ethernet',route_metric:10,interface_metric:25,protocol:'NetMgmt',store:'ActiveStore',
 }]};
 describe('路由界面语义',()=>{
   it('区分临时、持久和仅持久',()=>{

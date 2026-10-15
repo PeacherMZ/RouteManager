@@ -3,10 +3,12 @@ import { Badge, Button, Checkbox, Input, Select } from '@fluentui/react-componen
 import { activeRecord, filterRoutes, ownerLabels, persistence } from './domain';
 import type { Library, RouteView } from './types';
 import { Empty, Icon } from './components';
+import { usePlatform } from './platform';
 
 export function RouteTable({ rows, library, selected, onSelected, onDetail }: {
   rows: RouteView[]; library: Library; selected: Set<string>; onSelected: (keys: Set<string>) => void; onDetail: (row: RouteView) => void;
 }) {
+  const platform = usePlatform();
   const [filters, setFilters] = useState({ search: '', owner: '', family: '', network: '', persistent: '' });
   const [sort, setSort] = useState<{ column: 'prefix' | 'gateway' | 'metric' | 'interface'; ascending: boolean }>({ column: 'prefix', ascending: true });
   const networks = [...new Map(rows.map(row => { const r = activeRecord(row); return [r.interface_index, r.interface_alias] as const; })).entries()];
@@ -43,7 +45,7 @@ export function RouteTable({ rows, library, selected, onSelected, onDetail }: {
           <th className="check-cell"><Checkbox aria-label="选择当前筛选中的所有 IPv4 路由" checked={allSelected ? true : anySelected ? 'mixed' : false} onChange={toggleAll}/></th>
           <th aria-sort={sort.column === 'prefix' ? (sort.ascending ? 'ascending' : 'descending') : 'none'}>{heading('目标网段', 'prefix')}</th>
           <th>{heading('网关', 'gateway')}</th><th>{heading('网络接口', 'interface')}</th>
-          <th>{heading('有效 metric', 'metric')}</th><th>持久状态</th><th>管理归属</th><th>协议</th><th>匹配配置</th><th className="detail-cell"/>
+          <th>{platform.metric ? heading('有效 metric', 'metric') : 'metric'}</th><th>持久状态</th><th>管理归属</th><th>协议</th><th>匹配配置</th><th className="detail-cell"/>
         </tr></thead>
         <tbody>{visible.map(row => {
           const r = activeRecord(row);
@@ -52,8 +54,8 @@ export function RouteTable({ rows, library, selected, onSelected, onDetail }: {
             <td className="check-cell"><Checkbox aria-label={`选择 ${r.prefix} 经 ${r.gateway} 接口 ${r.interface_alias}`} checked={selected.has(row.key)} disabled={r.family !== 'IPv4'} onChange={() => toggle(row.key)}/></td>
             <td><button className="route-link mono" onClick={() => onDetail(row)}>{r.prefix}</button>{r.family === 'IPv6' && <small className="readonly-label">IPv6 · 只读</small>}</td>
             <td className="mono">{r.gateway}</td>
-            <td><span className="interface-label"><span className="interface-dot"/>{r.interface_alias}</span><small className="muted">if {r.interface_index}</small></td>
-            <td><span className="metric-total">{r.route_metric + r.interface_metric}</span><small className="muted">{r.route_metric} + {r.interface_metric}</small></td>
+            <td><span className="interface-label"><span className="interface-dot"/>{r.interface_alias}</span><small className="muted">if {r.interface_index}{r.native && ` · ${r.service_group ? '原生持久服务' : r.native.scope === 'scoped' ? '接口限定' : r.native.scope === 'ambiguous' ? '作用域待确认' : '全局'}`}</small></td>
+            <td>{platform.metric ? <><span className="metric-total">{r.route_metric + r.interface_metric}</span><small className="muted">{r.route_metric} + {r.interface_metric}</small></> : <span className="muted">不适用</span>}</td>
             <td><Badge appearance="outline" color={persistence(row) === '持久' ? 'brand' : 'informative'}>{persistence(row)}</Badge></td>
             <td><span className={`ownership ${row.ownership}`}><span/>{ownerLabels[row.ownership]}</span>{row.ambiguous_config_ids.length > 0 && <small className="warning-text">接口待确认</small>}</td>
             <td className="muted protocol">{r.protocol}</td><td className="config-cell" title={names.join('、')}>{names.join('、') || '—'}</td>

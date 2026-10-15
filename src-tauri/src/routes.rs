@@ -20,14 +20,26 @@ pub fn normalize_config(config: &mut RouteConfig) -> Result<(), String> {
         .parse()
         .map_err(|_| "请输入有效 IPv4 网关")?;
     config.gateway = gateway.to_string();
-    config.interface_guid = match config.interface_guid.take() {
-        Some(guid) if !guid.trim().is_empty() => Some(
-            uuid::Uuid::parse_str(guid.trim().trim_matches(|c| c == '{' || c == '}'))
-                .map_err(|_| "网卡 GUID 无效")?
-                .to_string(),
-        ),
+    config.interface_id = match config.interface_id.take() {
+        Some(guid) if !guid.trim().is_empty() => Some(crate::identity::normalize(&guid)?),
         _ => None,
     };
+    if config
+        .scope
+        .as_deref()
+        .is_some_and(|s| !matches!(s, "scoped" | "unscoped"))
+    {
+        return Err("路由作用域无效".into());
+    }
+    if config.scope.is_some()
+        && (config.persistent
+            || config
+                .interface_id
+                .as_deref()
+                .is_some_and(|id| !crate::identity::is_macos(id)))
+    {
+        return Err("作用域只适用于 macOS 临时路由；持久路由由网络服务决定作用域".into());
+    }
     Ok(())
 }
 pub fn validate_library(library: &mut Library) -> Result<(), String> {
@@ -42,8 +54,8 @@ pub fn validate_library(library: &mut Library) -> Result<(), String> {
             return Err(format!("路由 ID 重复：{}", route.id));
         }
         if !identities.insert(format!(
-            "{}|{}|{:?}",
-            route.prefix, route.gateway, route.interface_guid
+            "{}|{}|{:?}|{:?}",
+            route.prefix, route.gateway, route.interface_id, route.scope
         )) {
             return Err(format!("重复的路由配置：{}", route.name));
         }
@@ -73,7 +85,8 @@ pub fn validate_library(library: &mut Library) -> Result<(), String> {
 }
 pub fn normalize_snapshot(snapshot: &mut SystemSnapshot) -> Result<(), String> {
     for record in &mut snapshot.routes {
-        record.associated_interface_guid = None;
+        record.service_group = false;
+        record.associated_interface_id = None;
         let net: ipnet::IpNet = record
             .prefix
             .parse()
@@ -81,16 +94,41 @@ pub fn normalize_snapshot(snapshot: &mut SystemSnapshot) -> Result<(), String> {
         record.prefix = net.trunc().to_string();
         let ip: IpAddr = record.gateway.parse().map_err(|_| "系统返回无效网关")?;
         record.gateway = ip.to_string();
-        record.interface_guid = record
-            .interface_guid
-            .trim_matches(|c| c == '{' || c == '}')
-            .to_lowercase();
+        if !record.interface_id.is_empty() {
+            record.interface_id = crate::identity::normalize(&record.interface_id)?;
+        }
     }
     for interface in &mut snapshot.interfaces {
-        interface.guid = interface
-            .guid
-            .trim_matches(|c| c == '{' || c == '}')
-            .to_lowercase();
+        if !interface.guid.is_empty() {
+            interface.guid = crate::identity::normalize(&interface.guid)?;
+        }
+    }
+    // A single native service setting can yield both global and scoped active
+    // routes. Group their presentation, but retain every physical scope/flag for
+    // the preview, mutation, and residual checks. This does not assert provenance.
+    let identity = |r: &RouteRecord| {
+        (
+            r.family.clone(),
+            r.prefix.clone(),
+            r.gateway.clone(),
+            r.interface_id.clone(),
+        )
+    };
+    let mut persistent_services = HashMap::new();
+    for record in &snapshot.routes {
+        if record.native.is_some()
+            && record.store == "PersistentStore"
+            && crate::identity::is_macos(&record.interface_id)
+            && !record.interface_id.ends_with(":-")
+        {
+            *persistent_services
+                .entry(identity(record))
+                .or_insert(0usize) += 1;
+        }
+    }
+    for record in &mut snapshot.routes {
+        record.service_group =
+            record.native.is_some() && persistent_services.get(&identity(record)) == Some(&1);
     }
     // Legacy route.exe -p records use ifIndex 0 and have no GUID. Associate only
     // when an active route identifies one interface; preserve the physical fields
@@ -99,7 +137,7 @@ pub fn normalize_snapshot(snapshot: &mut SystemSnapshot) -> Result<(), String> {
     for record in &mut snapshot.routes {
         if record.store == "PersistentStore"
             && record.interface_index == 0
-            && record.interface_guid.is_empty()
+            && record.interface_id.is_empty()
         {
             let candidates: HashSet<_> = active
                 .iter()
@@ -109,12 +147,12 @@ pub fn normalize_snapshot(snapshot: &mut SystemSnapshot) -> Result<(), String> {
                         && a.prefix == record.prefix
                         && a.gateway == record.gateway
                 })
-                .map(|a| a.interface_guid.clone())
+                .map(|a| a.interface_id.clone())
                 .collect();
             if candidates.len() == 1 {
                 let guid = candidates.into_iter().next().unwrap();
                 if !guid.is_empty() {
-                    record.associated_interface_guid = Some(guid);
+                    record.associated_interface_id = Some(guid);
                 }
             }
         }
@@ -127,7 +165,7 @@ pub fn normalize_snapshot(snapshot: &mut SystemSnapshot) -> Result<(), String> {
 pub fn is_system(record: &RouteRecord) -> bool {
     matches!(
         record.protocol.to_lowercase().as_str(),
-        "local" | "dhcp" | "icmp" | "routeradvertisement" | "2" | "4" | "19"
+        "local" | "kernel" | "dhcp" | "icmp" | "routeradvertisement" | "2" | "4" | "19"
     )
 }
 pub fn build_snapshot(
@@ -158,9 +196,15 @@ pub fn build_snapshot(
                     && r.prefix == config.prefix
                     && r.gateway == config.gateway
                     && config
-                        .interface_guid
+                        .interface_id
                         .as_ref()
-                        .is_none_or(|g| g.eq_ignore_ascii_case(r.logical_guid()))
+                        .is_none_or(|g| crate::identity::matches(g, r.logical_guid()))
+                    && config.scope.as_deref().is_none_or(|scope| {
+                        v.records.iter().any(|r| {
+                            r.store == "PersistentStore"
+                                || r.native.as_ref().is_some_and(|n| n.scope == scope)
+                        })
+                    })
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -177,7 +221,16 @@ pub fn build_snapshot(
                 }
             }
         }
-        let ambiguous = candidates.len() > 1;
+        let ambiguous = candidates.len() > 1
+            || candidates.iter().any(|key| {
+                let records = &rows[key].records;
+                (config.scope.is_some() && records.iter().any(|r| r.service_group))
+                    || records
+                        .iter()
+                        .filter(|r| r.native.is_some() && r.store == "PersistentStore")
+                        .count()
+                        > 1
+            });
         let state = if ambiguous {
             "ambiguous"
         } else if candidates.is_empty() {
@@ -251,9 +304,13 @@ pub fn target_records(raw: &SystemSnapshot, target: &RouteConfig) -> Vec<RouteRe
                 && r.prefix == target.prefix
                 && r.gateway == target.gateway
                 && target
-                    .interface_guid
+                    .interface_id
                     .as_ref()
-                    .is_some_and(|g| g.eq_ignore_ascii_case(r.logical_guid()))
+                    .is_some_and(|g| crate::identity::matches(g, r.logical_guid()))
+                && target.scope.as_deref().is_none_or(|scope| {
+                    r.store == "PersistentStore"
+                        || r.native.as_ref().is_some_and(|n| n.scope == scope)
+                })
         })
         .cloned()
         .collect()
@@ -263,8 +320,10 @@ pub fn same_physical_record(a: &RouteRecord, b: &RouteRecord) -> bool {
         && a.prefix == b.prefix
         && a.gateway == b.gateway
         && a.interface_index == b.interface_index
-        && a.interface_guid == b.interface_guid
+        && a.interface_id == b.interface_id
         && a.store == b.store
+        && (a.store == "PersistentStore"
+            || a.native.as_ref().map(|n| &n.scope) == b.native.as_ref().map(|n| &n.scope))
 }
 pub fn remaining_before(raw: &SystemSnapshot, before: &[RouteRecord]) -> Vec<RouteRecord> {
     raw.routes
@@ -276,8 +335,8 @@ pub fn remaining_before(raw: &SystemSnapshot, before: &[RouteRecord]) -> Vec<Rou
 pub fn unassociated_persistent(record: &RouteRecord) -> bool {
     record.store == "PersistentStore"
         && record.interface_index == 0
-        && record.interface_guid.is_empty()
-        && record.associated_interface_guid.is_none()
+        && record.interface_id.is_empty()
+        && record.associated_interface_id.is_none()
 }
 // Interface indexes, metrics, store membership and protocols matter; volatile lifetimes do not.
 pub fn fingerprint(records: &[RouteRecord]) -> String {

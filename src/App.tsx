@@ -8,6 +8,7 @@ import { RouteTable } from './RouteTable';
 import { HistoryPage, HostsPage, LibraryPage, SettingsPage } from './pages';
 import type { HostsDocument, Library, OperationPlan, OperationResult, PlanRequest, RouteConfig, RouteGroup, RouteSnapshot, Settings } from './types';
 import logo from './logo.svg';
+import { PlatformContext, windowsPlatform } from './platform';
 
 type Page = 'routes' | 'library' | 'history' | 'hosts' | 'settings';
 const nav: { id: Page; title: string; description: string }[] = [
@@ -17,7 +18,7 @@ const nav: { id: Page; title: string; description: string }[] = [
   { id: 'hosts', title: 'hosts 编辑', description: '管理本机域名映射，保存前自动备份。' },
   { id: 'settings', title: '设置', description: '调整显示偏好，了解本地数据与管理范围。' },
 ];
-const defaultSettings: Settings = { theme: 'system', refresh_seconds: 5, data_dir: '加载中…', version: '2.0.0' };
+const defaultSettings: Settings = { theme: 'system', refresh_seconds: 5, data_dir: '加载中…', version: '2.1.0', backups_dir: '加载中…', exports_dir: '加载中…', platform: { ...windowsPlatform, route_write: false } };
 export function App() {
   const [page, setPage] = useState<Page>('routes');
   const [settings, setSettings] = useState(defaultSettings);
@@ -109,7 +110,7 @@ export function App() {
     catch (error) { setNotice({ text: String(error), error: true }); return false; }
     finally { busyRef.current = false; setBusy(false); }
   };
-  const preview = (request: PlanRequest) => task(async () => { setPlan(await api.preview(request)); });
+  const preview = (request: PlanRequest) => task(async () => { if (!settings.platform.route_write) throw new Error('平台能力尚未就绪，系统修改不可用'); setPlan(await api.preview(request)); });
   const saveLibrary = (next: Library) => task(async () => {
     const routesChanged = JSON.stringify(next.routes) !== JSON.stringify(library.routes);
     libraryRevision.current += 1;
@@ -120,7 +121,7 @@ export function App() {
       void refresh(false, true);
     }
   });
-  const newConfig = (): RouteConfig => ({ id: crypto.randomUUID(), name: '', prefix: '', gateway: '', interface_guid: null, metric: null, persistent: true, comment: '' });
+  const newConfig = (): RouteConfig => ({ id: crypto.randomUUID(), name: '', prefix: '', gateway: '', interface_id: null, metric: null, persistent: true, comment: '' });
   const currentNav = nav.find(n => n.id === page)!;
   const detail = snapshot?.routes.find(r => r.key === detailKey);
   const stale = !snapshot || !!snapshotError;
@@ -136,14 +137,14 @@ export function App() {
   const managed = snapshot?.routes.filter(r => r.ownership === 'managed').length ?? 0;
   const inactive = snapshot?.matches.filter(m => m.state !== 'active').length ?? 0;
 
-  return <FluentProvider theme={theme} className="app-provider" data-theme={dark ? 'dark' : 'light'}>
+  return <PlatformContext.Provider value={settings.platform}><FluentProvider theme={theme} className="app-provider" data-theme={dark ? 'dark' : 'light'}>
     <div className="app-shell">
       <aside className="sidebar"><div className="brand"><img src={logo} alt=""/><div><strong>路由管理器</strong><span>ROUTE MANAGER</span></div></div>
         <div className="workspace-label">本机网络</div>
         <nav aria-label="主导航">{nav.map(item => <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
           <Icon name={item.id}/><span>{item.title}</span>{item.id === 'library' && <span className="nav-count">{library.routes.length}</span>}
         </button>)}</nav>
-        <div className="sidebar-bottom"><div className="local-indicator"><span/>本地运行 · 数据不上传</div><div className="permission"><Icon name="shield" size={17}/>{demo ? '演示数据 · 不修改系统' : desktop ? '管理员模式' : '浏览器预览 · 不连接系统'}</div><small>版本 {settings.version} · Windows</small></div>
+        <div className="sidebar-bottom"><div className="local-indicator"><span/>本地运行 · 数据不上传</div><div className="permission"><Icon name="shield" size={17}/>{demo ? '演示数据 · 不修改系统' : desktop ? (settings.platform.privilege === 'startup' ? '管理员模式' : '系统修改时授权') : '浏览器预览 · 不连接系统'}</div><small>版本 {settings.version} · {settings.platform.os === 'macos' ? 'macOS' : 'Windows'}</small></div>
       </aside>
       <main className="main">
         <header className="topbar"><div className="breadcrumb">本机网络<span>/</span>{currentNav.title}</div><div className="topbar-right"><span className={`status-dot ${stale ? 'warning' : ''}`}/>{stale ? '状态待同步' : '已连接本机'}<span className="topbar-divider"/><span>IPv4 管理</span><Badge appearance="outline" color="informative">IPv6 只读</Badge></div></header>
@@ -196,10 +197,10 @@ export function App() {
       <DrawerHeader><DrawerHeaderTitle action={<Button aria-label="关闭详情" appearance="subtle" icon={<Icon name="close"/>} onClick={() => setDetailKey(null)}/>}>路由详情</DrawerHeaderTitle></DrawerHeader>
       <DrawerBody>{detail ? <>
         <h2 className="mono">{activeRecord(detail).prefix}</h2><div className="button-row"><Badge appearance="tint" color={detail.ownership === 'managed' ? 'success' : 'informative'}>{ownerLabels[detail.ownership]}</Badge><Badge appearance="outline">{persistence(detail)}</Badge></div>
-        <dl className="detail-list"><dt>网关</dt><dd className="mono">{activeRecord(detail).gateway}</dd><dt>网络接口</dt><dd>{activeRecord(detail).interface_alias} · if {activeRecord(detail).interface_index}</dd><dt>接口 GUID</dt><dd className="mono path">{activeRecord(detail).interface_guid || '系统未提供'}</dd><dt>创建记录</dt><dd>{detail.created_by_app ? '操作日志记录本程序曾创建同标识路由' : '没有本程序创建的历史证据'}</dd><dt>匹配配置</dt><dd>{detail.config_ids.map(id => library.routes.find(c => c.id === id)?.name).join('、') || '无'}</dd></dl>
+        <dl className="detail-list"><dt>网关</dt><dd className="mono">{activeRecord(detail).gateway}</dd><dt>网络接口</dt><dd>{activeRecord(detail).interface_alias} · if {activeRecord(detail).interface_index}</dd><dt>接口标识</dt><dd className="mono path">{activeRecord(detail).interface_id || '系统未提供'}</dd>{activeRecord(detail).native && <><dt>作用域</dt><dd>{activeRecord(detail).native?.scope === 'scoped' ? '接口限定' : activeRecord(detail).native?.scope === 'ambiguous' ? '待确认' : '全局'}</dd></>}<dt>创建记录</dt><dd>{detail.created_by_app ? '操作日志记录本程序曾创建同标识路由' : '没有本程序创建的历史证据'}</dd><dt>匹配配置</dt><dd>{detail.config_ids.map(id => library.routes.find(c => c.id === id)?.name).join('、') || '无'}</dd></dl>
         {detail.ambiguous_config_ids.length > 0 && <div className="warning-banner">配置匹配到多个接口，需要先绑定接口后才能批量清除。</div>}
-        <h3>活动与持久记录</h3>{detail.records.map(record => <div className="record-card" key={record.store}><strong>{record.store === 'ActiveStore' ? '当前生效' : '重启后保留'}</strong><p>路由 metric {record.route_metric} + 接口 metric {record.interface_metric} = {record.route_metric + record.interface_metric}</p><span className="muted">协议：{record.protocol || '系统未提供'} · 原始接口索引 {record.interface_index}</span>{record.associated_interface_guid && <p className="muted">历史持久记录未绑定接口，已按唯一活动路由关联；删除时仍定位原始记录。</p>}</div>)}
-        <h3>相关操作</h3>{history.filter(h => h.items.some(i => [...i.before, ...i.after].some(r => r.prefix === activeRecord(detail).prefix && r.gateway === activeRecord(detail).gateway && r.interface_guid === activeRecord(detail).interface_guid))).slice(0, 10).map(h => <button className="related-operation" key={h.id} onClick={() => setResult(h)}>{formatTime(h.started_at)}<StateBadge value={h.status}/></button>)}
+        <h3>活动与持久记录</h3>{detail.records.map(record => <div className="record-card" key={`${record.store}|${record.native?.scope ?? ""}`}><strong>{record.store === 'ActiveStore' ? '当前生效' : '重启后保留'}</strong><p>{settings.platform.metric ? `路由 metric ${record.route_metric} + 接口 metric ${record.interface_metric} = ${record.route_metric + record.interface_metric}` : 'metric 不适用'}</p><span className="muted">协议：{record.protocol || '系统未提供'} · 原始接口索引 {record.interface_index}{record.native && ` · ${record.native.scope === "scoped" ? "接口限定" : record.native.scope === "ambiguous" ? "作用域待确认" : "全局"}`}</span>{record.associated_interface_id && <p className="muted">历史持久记录未绑定接口，已按唯一活动路由关联；删除时仍定位原始记录。</p>}</div>)}
+        <h3>相关操作</h3>{history.filter(h => h.items.some(i => [...i.before, ...i.after].some(r => r.prefix === activeRecord(detail).prefix && r.gateway === activeRecord(detail).gateway && r.interface_id === activeRecord(detail).interface_id))).slice(0, 10).map(h => <button className="related-operation" key={h.id} onClick={() => setResult(h)}>{formatTime(h.started_at)}<StateBadge value={h.status}/></button>)}
         <p className="muted">管理归属来自配置匹配，系统协议和创建日志提供独立的来源线索。</p>
       </> : <p>该路由已不在最新快照中。</p>}</DrawerBody>
     </OverlayDrawer>
@@ -213,5 +214,5 @@ export function App() {
     {plan && <PlanDialog plan={plan} busy={busy} onClose={() => setPlan(null)} onConfirm={() => void task(async () => { try { const next = await api.execute(plan.id); setResult(next); } finally { setPlan(null); libraryRevision.current += 1; routeRevision.current += 1; await refresh(true, true); } })}/>}
     {result && <ResultDialog result={result} onClose={() => setResult(null)}/>}
     {confirm && <Dialog open onOpenChange={(_, d) => { if (!d.open && !busy) setConfirm(null); }}><DialogSurface><DialogBody><DialogTitle>{confirm.title}</DialogTitle><DialogContent>{confirm.text}</DialogContent><DialogActions><Button disabled={busy} onClick={() => setConfirm(null)}>取消</Button><Button appearance="primary" disabled={busy} onClick={async () => { try { if (await confirm.action()) setConfirm(null); } catch (error) { setNotice({ text: String(error), error: true }); } }}>确认</Button></DialogActions></DialogBody></DialogSurface></Dialog>}
-  </FluentProvider>;
+  </FluentProvider></PlatformContext.Provider>;
 }

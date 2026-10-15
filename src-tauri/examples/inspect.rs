@@ -1,20 +1,16 @@
-use route_manager::{
-    db::Database,
-    model::*,
-    routes::build_snapshot,
-    system::{RouteSystem, WindowsRouteSystem},
-};
+use route_manager::{db::Database, model::*, routes::build_snapshot, system::native_system};
 fn main() -> Result<(), String> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap();
-    let directory = std::env::args()
+    let directory = std::env::args_os()
         .nth(1)
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| root.join("data"));
-    let db = Database::open(&directory, Some(&root.join("legacy/routes.yaml")))?;
+        .ok_or("必须显式指定独立诊断数据目录")?;
+    if !directory.is_absolute() {
+        return Err("诊断目录必须是绝对路径".into());
+    }
+    let _lock = route_manager::storage::InstanceLock::acquire(&directory)?;
+    let db = Database::open(&directory, None)?;
     let library = db.library()?;
-    let mut system = WindowsRouteSystem::default();
+    let mut system = native_system();
     let raw = system.snapshot()?;
     let snapshot = build_snapshot(&raw, &library, &db.created_keys()?);
     let active = raw

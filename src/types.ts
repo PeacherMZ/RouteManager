@@ -1,14 +1,17 @@
 export interface RouteConfig {
-  id: string; name: string; prefix: string; gateway: string; interface_guid: string | null;
+  id: string; name: string; prefix: string; gateway: string; interface_id: string | null;
   metric: number | null; persistent: boolean; comment: string;
+  scope?: 'scoped' | 'unscoped' | null;
 }
 export interface RouteGroup { id: string; name: string; routes: string[] }
 export interface Library { routes: RouteConfig[]; groups: RouteGroup[] }
 export interface NetworkInterface { guid: string; index: number; alias: string; status: string; addresses: string[] }
 export interface RouteRecord {
-  family: string; prefix: string; gateway: string; interface_index: number; interface_guid: string;
+  family: string; prefix: string; gateway: string; interface_index: number; interface_id: string;
   interface_alias: string; route_metric: number; interface_metric: number; protocol: string; store: string;
-  associated_interface_guid?: string | null;
+  associated_interface_id?: string | null;
+  native?: { scope: 'scoped' | 'unscoped' | 'ambiguous'; flags: number } | null;
+  service_group?: boolean;
 }
 export interface RouteView {
   key: string; records: RouteRecord[]; config_ids: string[]; ambiguous_config_ids: string[];
@@ -31,4 +34,4 @@ export interface OperationItemResult {
 }
 export interface OperationResult { id: string; started_at: string; finished_at: string; status: string; items: OperationItemResult[] }
 export interface HostsDocument { content: string; fingerprint: string; encoding: string; newline: string; path: string }
-export interface Settings { theme: 'light' | 'dark' | 'system'; refresh_seconds: number; data_dir: string; version: string }
+export interface Settings { theme: 'light' | 'dark' | 'system'; refresh_seconds: number; data_dir: string; backups_dir: string; exports_dir: string; version: string; platform: import('./platform').PlatformInfo }

@@ -9,6 +9,7 @@ export default defineConfig({
     fs: { deny: ['**/.git/**', '**/.tools/**', '**/data/**', '**/legacy/**', '**/.env*'] },
   },
   build: {
+    target: ['chrome109', 'safari16'],
     outDir: 'artifacts/frontend', emptyOutDir: true,
     rollupOptions: { output: { manualChunks: { fluent: ['@fluentui/react-components'] } } },
   },

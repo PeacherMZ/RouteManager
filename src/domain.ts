@@ -16,8 +16,9 @@ export function fromRoute(row: RouteView, library: Library): RouteConfig {
   const r = activeRecord(row);
   return {
     id: config?.id ?? crypto.randomUUID(), name: config?.name ?? r.prefix,
-    prefix: r.prefix, gateway: r.gateway, interface_guid: r.interface_guid || null,
-    metric: r.route_metric, persistent: row.records.some(r => r.store === 'PersistentStore'), comment: config?.comment ?? '',
+    prefix: r.prefix, gateway: r.gateway, interface_id: r.interface_id || null,
+    scope: row.records.some(r => r.store === 'PersistentStore') ? null : r.native?.scope === 'scoped' ? 'scoped' : r.native ? 'unscoped' : null,
+    metric: r.interface_id.startsWith('macos:') ? null : r.route_metric, persistent: row.records.some(r => r.store === 'PersistentStore'), comment: config?.comment ?? '',
   };
 }
 export interface RouteFilters { search: string; owner: string; family: string; network: string; persistent: string }

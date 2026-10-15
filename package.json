@@ -1,6 +1,6 @@
 {
   "name": "route-manager",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.25.0",
@@ -11,7 +11,7 @@
     "test:ui": "playwright test",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build --no-bundle",
+    "desktop:build": "node scripts/build.mjs",
     "check": "tsc -b"
   },
   "dependencies": {

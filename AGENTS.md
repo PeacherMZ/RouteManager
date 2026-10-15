@@ -6,10 +6,10 @@
 - 用户明确要求优先；已获得的授权不重复询问。
 
 ## 项目与目录
-- Windows 10/11 x64 便携式路由管理器；Tauri 2 + Rust + React/TypeScript + Fluent UI + SQLite。中文紧凑界面，支持深浅主题。
-- IPv4 可管理，IPv6 只读；正式程序启动即提权，保持本地资源与受限 IPC。
-- src/：界面；src-tauri/：后端、数据库迁移和固定 PowerShell 脚本；scripts/：构建及启动工具；tests/ 与 src-tauri/tests/：测试。
-- artifacts/：构建与运行产物；data/：用户数据、备份及导出；legacy/：旧版归档；.tools/：开发工具链。
+- Windows 10/11 x64、macOS 13+ Apple Silicon 安装版路由管理器；Tauri 2 + Rust + React/TypeScript + Fluent UI + SQLite。中文紧凑界面，支持深浅主题。
+- IPv4 可管理，IPv6 只读；Windows 启动提权并保留原用户目录，macOS 按需使用临时授权助手；保持本地资源与受限 IPC。
+- src/：界面；src-tauri/：后端、数据库迁移、固定 PowerShell 脚本与 macos/ 原生助手；scripts/：构建及启动工具；tests/ 与 src-tauri/tests/：测试。
+- artifacts/：构建产物；data/、legacy/：私人旧资料，禁止自动扫描迁移；.tools/：开发工具链。用户数据位于系统用户目录。
 - 保持前后端分层；修改 IPC 参数或模型时同步更新 TypeScript 类型和调用。
 
 ## 公开仓库约束
@@ -20,7 +20,8 @@
 
 ## 核心约束
 - 实际路由以系统快照为准，配置操作不隐式修改系统路由。“受管理”表示配置命中，不等于创建来源。
-- 精确匹配前缀、网关和接口身份，优先 GUID；接口歧义不猜测。活动与持久记录分别核对。
+- 接口使用平台限定标识：Windows GUID、macOS BSD 名称/服务 UUID；精确匹配前缀、网关、接口及路由作用域；歧义不猜测。
+- macOS 持久路由只使用原生网络服务 AdditionalRoutes，不创建自启任务或常驻服务；不把 Windows metric 映射到其他指标。
 - 旧 route -p 的无接口持久记录仅在活动接口唯一时关联，保留物理标识；删除按物理记录核验，不能漏掉持久残留。
 - 系统修改先预览、执行前重读核对、串行执行、执行后核验；部分失败和恢复失败如实报告，不覆盖未知变化。
 - 清除受管理路由只删除准确命中项及其持久记录，保留配置和其他路由。
@@ -32,9 +33,10 @@
 ## 开发与验证
 - 优先使用现有工具链和 pnpm，保持锁文件同步；安装依赖使用 pnpm install --frozen-lockfile。
 - 前端：pnpm test、pnpm build；界面交互变更按需运行 pnpm exec playwright test。
-- Rust：先加载 scripts/Environment.ps1，再运行 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --locked。
+- Rust：Windows 先加载 scripts/Environment.ps1；两平台运行 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --locked。
 - PowerShell 适配变更运行 tests/windows-adapter.ps1 契约测试（Windows PowerShell 5.1）。
-- 交付可运行更新使用 pwsh -File scripts/Build.ps1，保持 artifacts/app/RouteManager.exe 与根目录快捷方式同步；构建受阻须明确说明。
+- 统一构建 node scripts/build.mjs；Windows 使用 pwsh -File scripts/Build.ps1 并同步运行副本/快捷方式。Windows 同时输出轻量联网包和完整离线包；EXE/PKG 位于 artifacts/release/。
+- 标签触发双平台测试/打包后创建 Release 草稿；仅发布任务有写权限。安装、升级和卸载不得删除用户目录。
 - 按变更范围验证；纯文档修改无需重建。模拟验证不能替代真实写入和重启验收。
 - 存在 .codegraph/ 时优先使用 CodeGraph 定位代码；不存在时使用 rg，不自行建立索引。普通搜索排除依赖和生成目录。
 
@@ -42,3 +44,5 @@
 - [README.md](README.md)：运行、构建及常见问题。
 - [架构说明](docs/architecture.md)：匹配、持久记录、接口与数据细节。
 - [验收说明](docs/acceptance.md)：测试场景；[验证记录](docs/verification.md)只保留可公开的验证范围，不包含本机网络信息。
+
+- [发布说明](docs/release.md)：CI、安装包与可选签名接入。

@@ -3,6 +3,7 @@ import { Badge, Button, Checkbox, Dialog, DialogActions, DialogBody, DialogConte
   Field, Input, Select, Switch, Textarea } from '@fluentui/react-components';
 import type { Library, NetworkInterface, OperationPlan, OperationResult, RouteConfig, RouteGroup } from './types';
 import { actionLabels, formatTime, stateLabels, validateDraft } from './domain';
+import { usePlatform } from './platform';
 
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
@@ -33,7 +34,8 @@ export function RouteEditor({ initial, interfaces, system, busy, onClose, onSave
   initial: RouteConfig; interfaces: NetworkInterface[]; system: boolean; busy: boolean;
   onClose: () => void; onSave: (draft: RouteConfig, save: boolean) => Promise<boolean>;
 }) {
-  const [draft, setDraft] = useState(initial);
+  const platform = usePlatform();
+  const [draft, setDraft] = useState(() => ({ ...initial, metric: platform.metric ? initial.metric : null, scope: platform.os === 'macos' && !initial.persistent ? initial.scope ?? 'unscoped' : null }));
   const [save, setSave] = useState(true);
   const [error, setError] = useState('');
   const patch = (value: Partial<RouteConfig>) => setDraft(old => ({ ...old, ...value }));
@@ -53,14 +55,15 @@ export function RouteEditor({ initial, interfaces, system, busy, onClose, onSave
           <Field label="目标网段 / 前缀长度" required><Input value={draft.prefix} placeholder="203.0.113.0/24" onChange={(_, d) => patch({ prefix: d.value })}/></Field>
           <Field label="网关" required><Input value={draft.gateway} placeholder="192.0.2.1" onChange={(_, d) => patch({ gateway: d.value })}/></Field>
           <Field label="网络接口" className="full" hint="自动匹配无法确定唯一接口时，程序会要求你明确选择。">
-            <Select value={draft.interface_guid ?? ''} onChange={(_, d) => patch({ interface_guid: d.value || null })}>
+            <Select value={draft.interface_id ?? ''} onChange={(_, d) => patch({ interface_id: d.value || null, ...(d.value.startsWith('macos:') && d.value.endsWith(':-') ? { persistent: false, scope: 'unscoped' } : {}) })}>
               <option value="">自动匹配（必须唯一）</option>
-              {draft.interface_guid && !interfaces.some(i => i.guid === draft.interface_guid) && <option value={draft.interface_guid}>已保存接口（当前不可用）</option>}
+              {draft.interface_id && !interfaces.some(i => i.guid === draft.interface_id) && <option value={draft.interface_id}>已保存接口（当前不可用）</option>}
               {interfaces.map(i => <option key={i.guid} value={i.guid}>{i.alias} · {i.addresses.join(', ') || '无 IPv4'} {i.status !== 'Up' ? '· 未连接' : ''}</option>)}
             </Select>
           </Field>
-          <Field label="路由 metric" hint="留空时保留现值；新建使用系统默认值。"><Input type="number" min={0} max={65535} value={draft.metric === null ? '' : String(draft.metric)} onChange={(_, d) => patch({ metric: d.value === '' ? null : Number(d.value) })}/></Field>
-          <Field label="持久路由"><Switch checked={draft.persistent} label="重启后保留" onChange={(_, d) => patch({ persistent: d.checked })}/></Field>
+          <Field label="路由 metric" hint={platform.metric ? '留空时保留现值；新建使用系统默认值。' : 'macOS 不适用；保存时清除 Windows metric。'}><Input disabled={!platform.metric} type="number" min={0} max={65535} value={draft.metric === null ? '' : String(draft.metric)} onChange={(_, d) => patch({ metric: d.value === '' ? null : Number(d.value) })}/></Field>
+          <Field label="持久路由" hint={platform.os === 'macos' ? '使用系统网络服务保存；没有唯一网络服务的接口仅支持临时路由。' : undefined}><Switch disabled={!platform.persistent_routes || (draft.interface_id?.startsWith('macos:') && draft.interface_id.endsWith(':-') && !draft.persistent)} checked={draft.persistent} label="重启后保留" onChange={(_, d) => patch({ persistent: d.checked, scope: platform.os === 'macos' && !d.checked ? draft.scope ?? 'unscoped' : null })}/></Field>
+          {platform.os === 'macos' && !draft.persistent && <Field label="路由作用域" hint="接口限定路由只用于相应接口；修改时保留所选作用域。"><Select value={draft.scope ?? 'unscoped'} onChange={(_, d) => patch({ scope: d.value as 'scoped' | 'unscoped' })}><option value="unscoped">全局</option><option value="scoped">接口限定</option></Select></Field>}
           <Field label="备注" className="full"><Textarea resize="vertical" value={draft.comment} onChange={(_, d) => patch({ comment: d.value })}/></Field>
           {system && <Checkbox className="full" checked={save} label="同步保存到配置库" onChange={(_, d) => setSave(d.checked === true)}/>}
         </div>
@@ -97,8 +100,8 @@ export function PlanDialog({ plan, busy, onClose, onConfirm }: { plan: Operation
       {[...new Set([...plan.warnings, ...plan.items.flatMap(i => i.warnings)])].map(w => <div key={w} className="warning-banner">{w}</div>)}
       <div className="plan-items">{plan.items.map(item => <section className="plan-item" key={item.id}>
         <div className="section-heading"><strong>{item.label}</strong><Badge appearance="tint" color={item.action === 'remove' ? 'danger' : 'informative'}>{actionLabels[item.action]}</Badge></div>
-        <div className="diff-columns"><div><span className="eyebrow">当前状态</span>{item.before.length ? item.before.map(r => <div key={r.store} className="mono">{r.prefix} → {r.gateway}<small>{r.interface_alias} · metric {r.route_metric} · {r.store === 'ActiveStore' ? '当前生效' : '持久记录'}</small></div>) : <p className="muted">不存在</p>}</div>
-          <Icon name="arrow"/><div><span className="eyebrow">执行后</span>{item.target ? <div className="mono">{item.target.prefix} → {item.target.gateway}<small>metric {item.target.metric ?? '默认'} · {item.target.persistent ? '活动 + 持久记录' : '仅活动记录'}</small></div> : <p>移除对应活动与持久记录</p>}</div>
+        <div className="diff-columns"><div><span className="eyebrow">当前状态</span>{item.before.length ? item.before.map(r => <div key={`${r.store}|${r.native?.scope ?? ""}`} className="mono">{r.prefix} → {r.gateway}<small>{r.interface_alias} · metric {r.interface_id.startsWith('macos:') ? '不适用' : r.route_metric} · {r.store === 'ActiveStore' ? '当前生效' : '持久记录'}{r.native && ` · ${r.native.scope === 'scoped' ? '接口限定' : r.native.scope === 'ambiguous' ? '作用域待确认' : '全局'}`}</small></div>) : <p className="muted">不存在</p>}</div>
+          <Icon name="arrow"/><div><span className="eyebrow">执行后</span>{item.target ? <div className="mono">{item.target.prefix} → {item.target.gateway}<small>metric {item.target.interface_id?.startsWith('macos:') ? '不适用' : item.target.metric ?? '默认'} · {item.target.persistent ? '活动 + 持久记录' : '仅活动记录'}{item.target.scope && ` · ${item.target.scope === 'scoped' ? '接口限定' : '全局'}`}</small></div> : <p>移除对应活动与持久记录</p>}</div>
         </div>
         <small className="muted">{item.save_config ? '成功核验后同步保存配置' : '保留现有配置库'}</small>
       </section>)}</div>
@@ -110,8 +113,8 @@ export function ResultDialog({ result, onClose }: { result: OperationResult; onC
     <DialogTitle>操作结果 <StateBadge value={result.status}/></DialogTitle><DialogContent className="result-items">
       <p className="muted">{formatTime(result.started_at)}</p>
       {result.items.map(item => <div key={item.item_id} className="result-item"><div className="section-heading"><strong>{item.label}</strong><StateBadge value={item.status}/></div><p>{item.message}</p>{item.recovery && <p className="warning-banner">{item.recovery}</p>}
-        <details><summary>查看变更前后记录</summary><div className="diff-columns"><div><span className="eyebrow">执行前</span>{item.before.length ? item.before.map(r => <div className="mono" key={`${r.store}|${r.prefix}|${r.gateway}|${r.interface_index}`}>{r.prefix} → {r.gateway}<small>{r.interface_alias} · metric {r.route_metric} · {r.store === 'ActiveStore' ? '当前生效' : '持久记录'}</small></div>) : <span className="muted">无记录</span>}</div>
-        <Icon name="arrow"/><div><span className="eyebrow">执行后实际状态</span>{item.after.length ? item.after.map(r => <div className="mono" key={`${r.store}|${r.prefix}|${r.gateway}|${r.interface_index}`}>{r.prefix} → {r.gateway}<small>{r.interface_alias} · metric {r.route_metric} · {r.store === 'ActiveStore' ? '当前生效' : '持久记录'}</small></div>) : <span className="muted">无记录；如读取失败，请以最新刷新为准</span>}</div></div></details>
+        <details><summary>查看变更前后记录</summary><div className="diff-columns"><div><span className="eyebrow">执行前</span>{item.before.length ? item.before.map(r => <div className="mono" key={`${r.store}|${r.prefix}|${r.gateway}|${r.interface_index}|${r.native?.scope ?? ""}`}>{r.prefix} → {r.gateway}<small>{r.interface_alias} · metric {r.interface_id.startsWith('macos:') ? '不适用' : r.route_metric} · {r.store === 'ActiveStore' ? '当前生效' : '持久记录'}{r.native && ` · ${r.native.scope === 'scoped' ? '接口限定' : r.native.scope === 'ambiguous' ? '作用域待确认' : '全局'}`}</small></div>) : <span className="muted">无记录</span>}</div>
+        <Icon name="arrow"/><div><span className="eyebrow">执行后实际状态</span>{item.after.length ? item.after.map(r => <div className="mono" key={`${r.store}|${r.prefix}|${r.gateway}|${r.interface_index}|${r.native?.scope ?? ""}`}>{r.prefix} → {r.gateway}<small>{r.interface_alias} · metric {r.interface_id.startsWith('macos:') ? '不适用' : r.route_metric} · {r.store === 'ActiveStore' ? '当前生效' : '持久记录'}{r.native && ` · ${r.native.scope === 'scoped' ? '接口限定' : r.native.scope === 'ambiguous' ? '作用域待确认' : '全局'}`}</small></div>) : <span className="muted">无记录；如读取失败，请以最新刷新为准</span>}</div></div></details>
       </div>)}
     </DialogContent><DialogActions><Button appearance="primary" onClick={onClose}>完成</Button></DialogActions>
   </DialogBody></DialogSurface></Dialog>;
