@@ -31,7 +31,7 @@ export function RouteTable({ rows, library, selected, onSelected, onDetail }: {
     onSelected(next);
   };
   const heading = (name: string, column: typeof sort.column) => <button className="sort-button" onClick={() => setSort({ column, ascending: sort.column === column ? !sort.ascending : true })}>{name}<span>{sort.column === column ? (sort.ascending ? '↑' : '↓') : '↕'}</span></button>;
-  return <section className="table-card">
+  return <section className="table-card system-route-card" aria-label="系统路由表">
     <div className="table-toolbar">
       <Input aria-label="搜索路由" className="search-input" contentBefore={<Icon name="search" size={17}/>} placeholder="搜索目标、网关、接口或配置名称" value={filters.search} onChange={(_, d) => setFilters({ ...filters, search: d.value })}/>
       <Select aria-label="管理归属" value={filters.owner} onChange={(_, d) => setFilters({ ...filters, owner: d.value })}><option value="">全部归属</option>{Object.entries(ownerLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select>

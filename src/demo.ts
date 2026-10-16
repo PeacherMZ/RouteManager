@@ -1,4 +1,5 @@
 import { windowsPlatform } from './platform';
+import { version } from '../package.json';
 import type { Library, OperationPlan, OperationResult, PlanRequest, RouteRecord, RouteSnapshot, RouteView, Settings, HostsDocument } from './types';
 
 // Entirely synthetic fixtures: documentation addresses and made-up interface GUIDs.
@@ -33,7 +34,7 @@ let rows = [
   row(record('fe80::/64','::','Local',256)),
 ];
 const interfaces = [{guid:ethernet,index:7,alias:'以太网',status:'Up',addresses:['192.0.2.100/24']},{guid:vpn,index:18,alias:'示例 VPN',status:'Up',addresses:['198.51.100.130/25']}];
-let settings: Settings = {theme:'light',refresh_seconds:5,data_dir:macDemo ? '~/Library/Application Support/com.local.route-manager（演示）' : '%LOCALAPPDATA%\\com.local.route-manager（演示）',version:'2.1.0',backups_dir:'用户目录/backups（演示）',exports_dir:'用户目录/exports（演示）',platform:macDemo ? {...windowsPlatform,os:'macos',metric:false,privilege:'on_demand'} : windowsPlatform};
+let settings: Settings = {theme:'light',refresh_seconds:5,data_dir:macDemo ? '~/Library/Application Support/com.local.route-manager（演示）' : '%LOCALAPPDATA%\\com.local.route-manager（演示）',version,backups_dir:'用户目录/backups（演示）',exports_dir:'用户目录/exports（演示）',platform:macDemo ? {...windowsPlatform,os:'macos',metric:false,privilege:'on_demand'} : windowsPlatform};
 const history: OperationResult[] = [];
 let pending: OperationPlan | null = null;
 let hosts: HostsDocument = {content:'# 本机域名映射（演示）\r\n127.0.0.1 localhost\r\n::1 localhost\r\n',fingerprint:'demo-0',encoding:'UTF-8',newline:'CRLF',path:'C:\\Windows\\System32\\drivers\\etc\\hosts（演示）'};

@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import packageInfo from '../../package.json' with { type: 'json' };
 
 test('macOS 显示按需授权和用户目录，禁用不适用的 metric', async ({ page }) => {
   await page.goto('/?demo=1&demo_platform=macos');
-  await expect(page.getByText('版本 2.1.0 · macOS')).toBeVisible();
+  await expect(page.getByText(`版本 ${packageInfo.version} · macOS`)).toBeVisible();
   await expect(page.getByRole('cell', { name: '不适用', exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page.getByText('~/Library/Application Support/com.local.route-manager（演示）', { exact: true })).toBeVisible();

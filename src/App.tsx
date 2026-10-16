@@ -9,6 +9,7 @@ import { HistoryPage, HostsPage, LibraryPage, SettingsPage } from './pages';
 import type { HostsDocument, Library, OperationPlan, OperationResult, PlanRequest, RouteConfig, RouteGroup, RouteSnapshot, Settings } from './types';
 import logo from './logo.svg';
 import { PlatformContext, windowsPlatform } from './platform';
+import { version } from '../package.json';
 
 type Page = 'routes' | 'library' | 'history' | 'hosts' | 'settings';
 const nav: { id: Page; title: string; description: string }[] = [
@@ -18,7 +19,7 @@ const nav: { id: Page; title: string; description: string }[] = [
   { id: 'hosts', title: 'hosts 编辑', description: '管理本机域名映射，保存前自动备份。' },
   { id: 'settings', title: '设置', description: '调整显示偏好，了解本地数据与管理范围。' },
 ];
-const defaultSettings: Settings = { theme: 'system', refresh_seconds: 5, data_dir: '加载中…', version: '2.1.0', backups_dir: '加载中…', exports_dir: '加载中…', platform: { ...windowsPlatform, route_write: false } };
+const defaultSettings: Settings = { theme: 'system', refresh_seconds: 5, data_dir: '加载中…', version, backups_dir: '加载中…', exports_dir: '加载中…', platform: { ...windowsPlatform, route_write: false } };
 export function App() {
   const [page, setPage] = useState<Page>('routes');
   const [settings, setSettings] = useState(defaultSettings);
@@ -146,10 +147,10 @@ export function App() {
         </button>)}</nav>
         <div className="sidebar-bottom"><div className="local-indicator"><span/>本地运行 · 数据不上传</div><div className="permission"><Icon name="shield" size={17}/>{demo ? '演示数据 · 不修改系统' : desktop ? (settings.platform.privilege === 'startup' ? '管理员模式' : '系统修改时授权') : '浏览器预览 · 不连接系统'}</div><small>版本 {settings.version} · {settings.platform.os === 'macos' ? 'macOS' : 'Windows'}</small></div>
       </aside>
-      <main className="main">
+      <main className={`main ${page === 'routes' ? 'routes-main' : ''}`}>
         <header className="topbar"><div className="breadcrumb">本机网络<span>/</span>{currentNav.title}</div><div className="topbar-right"><span className={`status-dot ${stale ? 'warning' : ''}`}/>{stale ? '状态待同步' : '已连接本机'}<span className="topbar-divider"/><span>IPv4 管理</span><Badge appearance="outline" color="informative">IPv6 只读</Badge></div></header>
         <div className="content">
-          <div className="page-heading"><div><div className="eyebrow">{page === 'routes' ? 'NETWORK OVERVIEW' : 'WORKSPACE'}</div><h1>{currentNav.title}</h1><p>{currentNav.description}</p></div>
+          <div className="page-heading"><div>{page !== 'routes' && <div className="eyebrow">WORKSPACE</div>}<h1>{currentNav.title}</h1>{page !== 'routes' && <p>{currentNav.description}</p>}</div>
             <div className="button-row"><Button icon={<Icon name="refresh" size={17}/>} disabled={refreshing || busy} onClick={() => void refresh(true)}>{refreshing ? '刷新中…' : '刷新'}</Button>
               {page === 'routes' && <Button appearance="primary" disabled={busy || stale} icon={<Icon name="plus" size={18}/>} onClick={() => setEditor({ draft: newConfig(), system: true })}>新增路由</Button>}
             </div></div>
@@ -157,11 +158,11 @@ export function App() {
           {notice && <div role={notice.error ? 'alert' : 'status'} className={notice.error ? 'error-banner' : 'success-banner'}><span>{notice.text}</span><Button appearance="subtle" size="small" aria-label="关闭提示" icon={<Icon name="close" size={16}/>} onClick={() => setNotice(null)}/></div>}
           {snapshotError && <div role="alert" className="error-banner"><div><strong>{snapshot ? '路由数据已过期' : '无法读取系统路由'}</strong><p>{snapshotError}</p>{snapshot && <small>当前仍显示 {formatTime(snapshot.captured_at)} 的数据；系统变更操作暂停。</small>}</div></div>}
           {page === 'routes' && <>
-            <div className="stats-grid">
-              <div className="stat-card"><div><span>当前生效路由</span><strong>{snapshot ? active : '—'}<small>条</small></strong><p>IPv4 与 IPv6 活动记录</p></div><div className="stat-icon"><Icon name="routes" size={24}/></div></div>
-              <div className="stat-card managed"><div><span>本管理器管理</span><strong>{snapshot ? managed : '—'}<small>条</small></strong><p>与配置库准确匹配</p></div><div className="stat-icon"><Icon name="shield" size={24}/></div></div>
-              <div className="stat-card"><div><span>配置待处理</span><strong>{snapshot ? inactive : '—'}<small>项</small></strong><p>未生效、属性不同或接口待确认</p></div><div className="stat-icon warm"><Icon name="library" size={24}/></div></div>
-            </div>
+            <dl className="route-summary" aria-label="路由概况">
+              <div title="IPv4 与 IPv6 活动记录"><dt><Icon name="routes" size={16}/>当前生效路由</dt><dd>{snapshot ? active : '—'}<small>条</small></dd></div>
+              <div className="managed" title="与配置库准确匹配"><dt><Icon name="shield" size={16}/>本管理器管理</dt><dd>{snapshot ? managed : '—'}<small>条</small></dd></div>
+              <div title="未生效、属性不同或接口待确认"><dt><Icon name="library" size={16}/>配置待处理</dt><dd>{snapshot ? inactive : '—'}<small>项</small></dd></div>
+            </dl>
             <div className="section-heading route-actions"><div><h2>系统路由表</h2><span className="muted">最后同步 {snapshot ? new Date(snapshot.captured_at).toLocaleTimeString('zh-CN', { hour12: false }) : '—'} {refreshing && <Spinner size="extra-tiny"/>}</span></div>
               <div className="button-row"><Button disabled={busy || stale || selected.size !== 1} onClick={() => setEditor({ draft: fromRoute(selectedRows[0], library), system: true, sourceKey: selectedRows[0].key })}>修改所选</Button>
                 <Button disabled={busy || stale || !selected.size} onClick={() => {
