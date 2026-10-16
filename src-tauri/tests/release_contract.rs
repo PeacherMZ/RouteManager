@@ -35,11 +35,45 @@ fn installer_never_deletes_user_data_or_terminates_the_app() {
 }
 
 #[test]
+fn cargo_cache_never_restores_build_output_from_another_workspace() {
+    let workflow: serde_yaml::Value =
+        serde_yaml::from_str(include_str!("../../.github/workflows/build.yml")).unwrap();
+    let steps = workflow["jobs"]["build"]["steps"].as_sequence().unwrap();
+    let context_index = steps
+        .iter()
+        .position(|step| step["id"].as_str() == Some("cargo-cache-context"))
+        .unwrap();
+    let context = steps[context_index]["run"].as_str().unwrap();
+    assert!(context.contains("process.env.GITHUB_WORKSPACE"));
+    assert!(context.contains("process.env.GITHUB_OUTPUT"));
+    let cache_index = steps
+        .iter()
+        .position(|step| {
+            step["with"]["path"]
+                .as_str()
+                .is_some_and(|path| path.contains("artifacts/cargo"))
+        })
+        .unwrap();
+    assert!(context_index < cache_index);
+    let cache = &steps[cache_index]["with"];
+    let scope =
+        "rust-v2-${{ matrix.platform }}-1.99.0-${{ steps.cargo-cache-context.outputs.workspace }}-";
+    assert!(cache["key"].as_str().unwrap().starts_with(scope));
+    let restore_keys: Vec<_> = cache["restore-keys"].as_str().unwrap().lines().collect();
+    assert!(!restore_keys.is_empty());
+    assert!(restore_keys.iter().all(|key| key.starts_with(scope)));
+}
+
+#[test]
 fn release_requires_both_platforms_and_pins_actions() {
     let workflow: serde_yaml::Value =
         serde_yaml::from_str(include_str!("../../.github/workflows/build.yml")).unwrap();
     let events = workflow["on"].as_mapping().unwrap();
-    assert_eq!(events.len(), 2, "only version tags and manual runs are allowed");
+    assert_eq!(
+        events.len(),
+        2,
+        "only version tags and manual runs are allowed"
+    );
     assert!(events.contains_key(serde_yaml::Value::from("workflow_dispatch")));
     let push = workflow["on"]["push"].as_mapping().unwrap();
     assert_eq!(push.len(), 1, "branch pushes must not trigger packaging");
