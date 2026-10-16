@@ -8,7 +8,7 @@ Tauri 2 + Rust + React/Fluent UI + SQLite 桌面路由管理器。目标平台�
 
 在 [GitHub Releases](https://github.com/PeacherMZ/RouteManager/releases) 中下载对应安装包，发布标题为 `RouteManager X.Y.Z`：
 
-- Windows：推荐 `RouteManager_<版本>_windows_x64-online-setup.exe` 轻量包，已装 WebView2 时直接复用，缺失时需联网下载。无网络且未装 WebView2 时使用 `RouteManager_<版本>_windows_x64-setup.exe` 完整离线包。两者默认安装到 `C:\Program Files\RoutingTableManager`。已有安装的覆盖升级沿用原目录；若旧版使用中文目录，可先卸载应用（保留用户数据）再用新安装包安装。应用启动时请求 UAC，取消后不打开数据库或修改系统。
+- Windows：推荐 `RouteManager_<版本>_windows_x64-online-setup.exe` 轻量包，已装 WebView2 时直接复用，缺失时需联网下载。无网络且未装 WebView2 时使用 `RouteManager_<版本>_windows_x64-setup.exe` 完整离线包。两者默认安装到 `C:\Program Files\RouteManager`。已有安装的覆盖升级沿用原目录；若希望旧安装改用新目录，可先卸载应用（保留用户数据）再用新安装包安装。应用启动时请求 UAC，取消后不打开数据库或修改系统。
 - macOS：`RouteManager_<版本>_macos_arm64.pkg`，安装到 `/Applications/路由管理器.app`。查看和保存配置无需管理员权限；系统修改时弹出授权对话框，临时助手执行结束后退出。
 
 升级前退出程序，直接运行新版本安装包。安装器拒绝覆盖正在运行的应用和降级安装；升级、卸载均保留用户数据。不要同时运行不同版本访问同一数据目录。

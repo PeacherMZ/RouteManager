@@ -32,6 +32,21 @@ fn installer_never_deletes_user_data_or_terminates_the_app() {
         "windows/installer.nsi"
     );
     assert_eq!(config["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(config["identifier"], "com.local.route-manager");
+    assert!(template.contains("!define INSTALLFOLDER \"RouteManager\""));
+    assert!(template.contains("StrCpy $INSTDIR \"$PROGRAMFILES64\\${INSTALLFOLDER}\""));
+    // Changing the fresh-install default must retain registered upgrade locations.
+    assert!(template.contains("Call RestorePreviousInstallLocation"));
+    let restore = template
+        .split("Function RestorePreviousInstallLocation")
+        .nth(1)
+        .unwrap()
+        .split("FunctionEnd")
+        .next()
+        .unwrap();
+    assert!(restore.contains("ReadRegStr $4 SHCTX \"${MANUPRODUCTKEY}\" \"\""));
+    assert!(restore.contains("StrCmp $4 \"\" +2 0"));
+    assert!(restore.contains("StrCpy $INSTDIR $4"));
 }
 
 #[test]

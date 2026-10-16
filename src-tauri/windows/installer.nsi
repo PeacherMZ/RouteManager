@@ -43,7 +43,7 @@ ${StrLoc}
 !define MANUFACTURER "{{manufacturer}}"
 !define PRODUCTNAME "{{product_name}}"
 ; Keep the product/registry identity stable; installation folder is independent.
-!define INSTALLFOLDER "RoutingTableManager"
+!define INSTALLFOLDER "RouteManager"
 !define VERSION "{{version}}"
 !define VERSIONWITHBUILD "{{version_with_build}}"
 !define HOMEPAGE "{{homepage}}"

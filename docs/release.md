@@ -1,6 +1,6 @@
 # 构建与发布
 
-项目仓库为 [PeacherMZ/RouteManager](https://github.com/PeacherMZ/RouteManager)，后续 Release 标题统一为 `RouteManager X.Y.Z`，已有 Release 保持原名称。仓库重命名不改变应用标识、安装路径或用户数据目录。
+项目仓库为 [PeacherMZ/RouteManager](https://github.com/PeacherMZ/RouteManager)，后续 Release 标题统一为 `RouteManager X.Y.Z`，已有 Release 保持原名称。仓库名称与应用标识、安装路径和用户数据目录相互独立。
 
 ## 无凭据默认流程
 
@@ -14,7 +14,7 @@ Rust 构建缓存按平台、工具链及工作目录指纹隔离，精确键与
 
 推送与应用版本一致的 `vX.Y.Z` 标签后，自动运行双平台测试和打包，再触发依赖两平台成功的草稿发布任务。该任务检查版本、三份安装包和三个校验文件，只有它有仓库写权限。失败不会公开 Release；重跑仅允许更新草稿，拒绝覆盖已经发布的版本。
 
-安装包和用户数据分离：Windows NSIS 默认 `C:\Program Files\RoutingTableManager`（覆盖升级沿用已有安装目录），macOS PKG 固定 `/Applications/路由管理器.app`。安装脚本不修改路由、hosts、用户数据库或启动项。macOS 组件禁止重定位；安装器在发现运行进程或较高版本时拒绝继续。
+安装包和用户数据分离：Windows NSIS 默认 `C:\Program Files\RouteManager`（覆盖升级沿用已有安装目录），macOS PKG 固定 `/Applications/路由管理器.app`。安装脚本不修改路由、hosts、用户数据库或启动项。macOS 组件禁止重定位；安装器在发现运行进程或较高版本时拒绝继续。
 
 Windows 自定义 NSIS 模板基于锁定 CLI 2.12.2 的上游模板，保留 MIT 许可证。修改点为去除删除用户数据的选项/代码、禁止强制关闭进程和降级安装。升级 Tauri CLI 时须重新核对模板变量与安装验收。
 

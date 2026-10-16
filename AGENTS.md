@@ -7,6 +7,7 @@
 
 ## 项目与目录
 - 项目名称 RouteManager，仓库为 https://github.com/PeacherMZ/RouteManager；后续 Release 标题使用 RouteManager X.Y.Z。
+- Windows 新安装默认目录为 Program Files\RouteManager；覆盖升级保留已登记的安装目录和用户数据。
 - Windows 10/11 x64、macOS 13+ Apple Silicon 安装版路由管理器；Tauri 2 + Rust + React/TypeScript + Fluent UI + SQLite。中文紧凑界面，支持深浅主题。
 - IPv4 可管理，IPv6 只读；Windows 启动提权并保留原用户目录，macOS 按需使用临时授权助手；保持本地资源与受限 IPC。
 - src/：界面；src-tauri/：后端、数据库迁移、固定 PowerShell 脚本与 macos/ 原生助手；scripts/：构建及启动工具；tests/ 与 src-tauri/tests/：测试。
