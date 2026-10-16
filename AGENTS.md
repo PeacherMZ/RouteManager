@@ -36,7 +36,7 @@
 - Rust：Windows 先加载 scripts/Environment.ps1；两平台运行 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --locked。
 - PowerShell 适配变更运行 tests/windows-adapter.ps1 契约测试（Windows PowerShell 5.1）。
 - 统一构建 node scripts/build.mjs；Windows 使用 pwsh -File scripts/Build.ps1 并同步运行副本/快捷方式。Windows 同时输出轻量联网包和完整离线包；EXE/PKG 位于 artifacts/release/。
-- 标签触发双平台测试/打包后创建 Release 草稿；仅发布任务有写权限。安装、升级和卸载不得删除用户目录。
+- CI 仅由版本标签推送或手动触发，普通分支推送/PR 不自动运行；只有标签推送在双平台测试/打包成功后创建 Release 草稿。仅发布任务有写权限；安装、升级和卸载不得删除用户目录。
 - 按变更范围验证；纯文档修改无需重建。模拟验证不能替代真实写入和重启验收。
 - 存在 .codegraph/ 时优先使用 CodeGraph 定位代码；不存在时使用 rg，不自行建立索引。普通搜索排除依赖和生成目录。
 

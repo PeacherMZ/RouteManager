@@ -81,7 +81,7 @@ pnpm desktop:dev
 
 ## 发布与验收
 
-普通提交和 PR 执行两平台 CI；推送与应用版本一致的 vX.Y.Z 标签后，只有两平台测试、打包全部成功才创建 Release **草稿**，上传 EXE、PKG 和校验文件。人工完成实机、覆盖安装及重启验收后再公开发布。没有应用内自动更新。
+普通分支推送（包括合入 main）和 PR 不自动运行 CI；需要验证时，在 GitHub Actions 中选择工作流并点击 Run workflow 手动运行两平台测试和打包，安装包保存在 Actions artifacts。推送与应用版本一致的 vX.Y.Z 标签后，自动运行两平台测试和打包，全部成功才创建 Release **草稿**，上传 EXE、PKG 和校验文件。手动运行不创建 Release 草稿。人工完成实机、覆盖安装及重启验收后再公开发布。没有应用内自动更新。
 
 查看 [架构](docs/architecture.md)、[发布配置](docs/release.md)、[验收清单](docs/acceptance.md)、[本次验证范围](docs/verification.md)。模拟测试、浏览器 WebKit 测试和编译成功均不等价于 macOS 实机验收。
 

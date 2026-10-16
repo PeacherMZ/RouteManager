@@ -38,6 +38,15 @@ fn installer_never_deletes_user_data_or_terminates_the_app() {
 fn release_requires_both_platforms_and_pins_actions() {
     let workflow: serde_yaml::Value =
         serde_yaml::from_str(include_str!("../../.github/workflows/build.yml")).unwrap();
+    let events = workflow["on"].as_mapping().unwrap();
+    assert_eq!(events.len(), 2, "only version tags and manual runs are allowed");
+    assert!(events.contains_key(serde_yaml::Value::from("workflow_dispatch")));
+    let push = workflow["on"]["push"].as_mapping().unwrap();
+    assert_eq!(push.len(), 1, "branch pushes must not trigger packaging");
+    assert_eq!(
+        workflow["on"]["push"]["tags"],
+        serde_yaml::to_value(["v*"]).unwrap()
+    );
     assert_eq!(workflow["permissions"]["contents"].as_str(), Some("read"));
     let jobs = workflow["jobs"].as_mapping().unwrap();
     for (name, job) in jobs {
@@ -63,8 +72,8 @@ fn release_requires_both_platforms_and_pins_actions() {
         workflow["jobs"]["draft-release"]["needs"].as_str(),
         Some("build")
     );
-    assert!(workflow["jobs"]["draft-release"]["if"]
-        .as_str()
-        .unwrap()
-        .contains("github.ref_type == 'tag'"));
+    assert_eq!(
+        workflow["jobs"]["draft-release"]["if"].as_str(),
+        Some("github.event_name == 'push' && github.ref_type == 'tag'")
+    );
 }

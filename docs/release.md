@@ -6,7 +6,9 @@
 
 工作流 `.github/workflows/build.yml` 使用固定提交的 Actions、Node 24、Rust 1.99.0 和冻结锁文件。Windows runner 为 windows-2022，Apple Silicon runner 为 macos-15；最低运行系统仍需 Windows 10、macOS 13 实机验证。
 
-普通提交/PR 运行测试和构建，安装包保存在 Actions artifacts。版本标签 `vX.Y.Z` 额外触发依赖两平台成功的草稿发布任务。该任务检查版本、三份安装包和三个校验文件，只有它有仓库写权限。失败不会公开 Release；重跑仅允许更新草稿，拒绝覆盖已经发布的版本。
+工作流仅由版本标签推送（`v*`）或 `workflow_dispatch` 手动触发；普通分支推送（包括合入 main）和 PR 不自动运行。需要验证分支时，在 GitHub Actions 中选择本工作流，点击 Run workflow 并选择分支；手动运行只测试和打包，安装包保存在 Actions artifacts，不创建 Release 草稿。
+
+推送与应用版本一致的 `vX.Y.Z` 标签后，自动运行双平台测试和打包，再触发依赖两平台成功的草稿发布任务。该任务检查版本、三份安装包和三个校验文件，只有它有仓库写权限。失败不会公开 Release；重跑仅允许更新草稿，拒绝覆盖已经发布的版本。
 
 安装包和用户数据分离：Windows NSIS 默认 `C:\Program Files\RoutingTableManager`（覆盖升级沿用已有安装目录），macOS PKG 固定 `/Applications/路由管理器.app`。安装脚本不修改路由、hosts、用户数据库或启动项。macOS 组件禁止重定位；安装器在发现运行进程或较高版本时拒绝继续。
 
