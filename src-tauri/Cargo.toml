@@ -1,6 +1,7 @@
 [package]
 name = "route-manager"
-version = "2.1.3"
+version = "2.1.4"
+repository = "https://github.com/PeacherMZ/RouteManager"
 rust-version = "1.99"
 edition = "2021"
 default-run = "RouteManager"

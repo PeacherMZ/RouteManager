@@ -1,5 +1,7 @@
 # 构建与发布
 
+项目仓库为 [PeacherMZ/RouteManager](https://github.com/PeacherMZ/RouteManager)，后续 Release 标题统一为 `RouteManager X.Y.Z`，已有 Release 保持原名称。仓库重命名不改变应用标识、安装路径或用户数据目录。
+
 ## 无凭据默认流程
 
 版本统一在 package.json、Cargo.toml、tauri.conf.json 中更新；Cargo.lock 的项目版本同步更新。首次跨平台版本为 2.1.0。
