@@ -1,5 +1,47 @@
 import { test, expect } from '@playwright/test';
 
+for (const theme of ['light', 'dark']) {
+  test(`编辑弹窗保留页面背景及主题：${theme}`, async ({ page }, testInfo) => {
+    await page.goto('/?demo=1');
+    await expect(page.getByText('已连接本机')).toBeVisible();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByLabel('界面主题', { exact: true }).selectOption(theme);
+    await expect(page.locator('.app-provider[data-theme]')).toHaveAttribute('data-theme', theme);
+    await expect(page.getByLabel('界面主题', { exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: /配置库与分组/ }).click();
+    const background = page.locator('.library-layout');
+    const before = await background.boundingBox();
+    const muted = await background.locator('.muted').first().evaluate(el => getComputedStyle(el).color);
+    const checkOverlay = async () => {
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      // A portal host must not paint an opaque sheet over the underlying workspace.
+      const host = dialog.locator('..');
+      await expect(host).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(dialog.locator('.muted').first()).toHaveCSS('color', muted);
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(await background.boundingBox()).toEqual(before);
+    };
+    await page.getByRole('button', { name: '编辑', exact: true }).first().click();
+    await checkOverlay();
+    await expect(page.getByRole('textbox', { name: '名称', exact: true })).toHaveValue('示例网络');
+    await page.screenshot({ path: `artifacts/qa/${testInfo.project.name}/editor-${theme}.png`, animations: 'disabled' });
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', { name: '新增分组', exact: true }).click();
+    await checkOverlay();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await page.getByRole('button', { name: '当前路由', exact: true }).click();
+    await page.getByRole('button', { name: '0.0.0.0/0', exact: true }).click();
+    const drawer = page.getByRole('dialog');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('..')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(drawer.locator('.muted').first()).toHaveCSS('color', muted);
+    await page.getByLabel('关闭详情').click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+}
+
 for (const platform of ['windows', 'macos']) {
   for (const theme of ['light', 'dark']) {
     test(`路由表占据剩余视口并独立滚动：${platform} / ${theme}`, async ({ page }) => {

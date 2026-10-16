@@ -138,7 +138,7 @@ export function App() {
   const managed = snapshot?.routes.filter(r => r.ownership === 'managed').length ?? 0;
   const inactive = snapshot?.matches.filter(m => m.state !== 'active').length ?? 0;
 
-  return <PlatformContext.Provider value={settings.platform}><FluentProvider theme={theme} className="app-provider" data-theme={dark ? 'dark' : 'light'}>
+  return <PlatformContext.Provider value={settings.platform}><FluentProvider theme={theme} className={`app-provider${dark ? ' theme-dark' : ''}`} data-theme={dark ? 'dark' : 'light'}>
     <div className="app-shell">
       <aside className="sidebar"><div className="brand"><img src={logo} alt=""/><div><strong>路由管理器</strong><span>ROUTE MANAGER</span></div></div>
         <div className="workspace-label">本机网络</div>
