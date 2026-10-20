@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Badge, Button, Checkbox, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle,
   Field, Input, Select, Switch, Textarea } from '@fluentui/react-components';
 import type { Library, NetworkInterface, OperationPlan, OperationResult, RouteConfig, RouteGroup } from './types';
-import { actionLabels, formatTime, stateLabels, validateDraft } from './domain';
+import { actionLabels, formatTime, stateLabels, validateConfigs, validateDraft } from './domain';
 import { usePlatform } from './platform';
+import { GatewayField, type GatewaySource } from './GatewayField';
 
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
@@ -30,8 +31,9 @@ export function StateBadge({ value }: { value: string }) {
 export function Empty({ title, text }: { title: string; text: string }) {
   return <div className="empty"><span className="empty-icon"><Icon name="routes" size={32}/></span><h3>{title}</h3><p>{text}</p></div>;
 }
-export function RouteEditor({ initial, interfaces, system, busy, onClose, onSave }: {
+export function RouteEditor({ initial, interfaces, system, busy, library, copying, onClose, onSave, ...gateways }: GatewaySource & {
   initial: RouteConfig; interfaces: NetworkInterface[]; system: boolean; busy: boolean;
+  library: Library; copying?: boolean;
   onClose: () => void; onSave: (draft: RouteConfig, save: boolean) => Promise<boolean>;
 }) {
   const platform = usePlatform();
@@ -42,18 +44,23 @@ export function RouteEditor({ initial, interfaces, system, busy, onClose, onSave
   const submit = async () => {
     const invalid = validateDraft(draft);
     if (invalid) { setError(invalid); return; }
+    if (!system || save) {
+      const conflict = validateConfigs([...library.routes.filter(route => route.id !== draft.id), draft]);
+      if (conflict) { setError(conflict); return; }
+    }
     setError('');
     if (await onSave(draft, save)) onClose();
   };
   return <Dialog open onOpenChange={(_, data) => { if (!data.open && !busy) onClose(); }}>
     <DialogSurface className="editor-dialog"><DialogBody>
-      <DialogTitle>{system ? '设置系统路由' : '编辑路由配置'}</DialogTitle>
+      <DialogTitle>{system ? '设置系统路由' : copying ? '复制路由配置' : '编辑路由配置'}</DialogTitle>
       <DialogContent>
         <p className="muted">{system ? '确认参数后先查看变更预览，再执行系统修改。' : '保存只更新配置库，应用配置后才会改变系统路由。'}</p>
+        {copying && <p className="muted">副本保留原参数并加入原分组。请调整目标网段、网关或网络接口，避免重复配置。</p>}
         <div className="form-grid">
           <Field label="名称" required className="full"><Input value={draft.name} onChange={(_, d) => patch({ name: d.value })}/></Field>
           <Field label="目标网段 / 前缀长度" required><Input value={draft.prefix} placeholder="203.0.113.0/24" onChange={(_, d) => patch({ prefix: d.value })}/></Field>
-          <Field label="网关" required><Input value={draft.gateway} placeholder="192.0.2.1" onChange={(_, d) => patch({ gateway: d.value })}/></Field>
+          <GatewayField {...gateways} disabled={busy} value={draft.gateway} onChange={gateway => patch({ gateway })}/>
           <Field label="网络接口" className="full" hint="自动匹配无法确定唯一接口时，程序会要求你明确选择。">
             <Select value={draft.interface_id ?? ''} onChange={(_, d) => patch({ interface_id: d.value || null, ...(d.value.startsWith('macos:') && d.value.endsWith(':-') ? { persistent: false, scope: 'unscoped' } : {}) })}>
               <option value="">自动匹配（必须唯一）</option>

@@ -30,7 +30,7 @@ test('配置保存不修改系统且支持分组', async ({ page }) => {
   await page.getByRole('button', { name: '新增配置', exact: true }).click();
   await page.getByRole('textbox', { name: '名称', exact: true }).fill('界面测试');
   await page.getByRole('textbox', { name: '目标网段 / 前缀长度', exact: true }).fill('203.0.113.0/24');
-  await page.getByRole('textbox', { name: '网关', exact: true }).fill('192.0.2.254');
+  await page.getByRole('combobox', { name: '网关', exact: true }).fill('192.0.2.254');
   await page.getByRole('button', { name: '保存配置', exact: true }).click();
   await expect(page.getByRole('button', { name: '界面测试', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '当前路由', exact: true }).click();

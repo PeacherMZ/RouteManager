@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, FluentProvider,
   OverlayDrawer, DrawerHeader, DrawerHeaderTitle, DrawerBody, Spinner, webDarkTheme, webLightTheme } from '@fluentui/react-components';
 import { api, demo, desktop } from './api';
-import { activeRecord, formatTime, fromRoute, ownerLabels, persistence } from './domain';
+import { activeRecord, copyConfig, formatTime, fromRoute, ownerLabels, patchConfigs, persistence } from './domain';
 import { GroupEditor, Icon, PlanDialog, ResultDialog, RouteEditor, StateBadge } from './components';
 import { RouteTable } from './RouteTable';
 import { HistoryPage, HostsPage, LibraryPage, SettingsPage } from './pages';
@@ -10,6 +10,7 @@ import type { HostsDocument, Library, OperationPlan, OperationResult, PlanReques
 import logo from './logo.svg';
 import { PlatformContext, windowsPlatform } from './platform';
 import { version } from '../package.json';
+import { BatchConfigEditor } from './BatchConfigEditor';
 
 type Page = 'routes' | 'library' | 'history' | 'hosts' | 'settings';
 const nav: { id: Page; title: string; description: string }[] = [
@@ -37,7 +38,8 @@ export function App() {
   const busyRef = useRef(false);
   const [selected, setSelected] = useState(new Set<string>());
   const [detailKey, setDetailKey] = useState<string | null>(null);
-  const [editor, setEditor] = useState<{ draft: RouteConfig; system: boolean; sourceKey?: string } | null>(null);
+  const [editor, setEditor] = useState<{ draft: RouteConfig; system: boolean; sourceKey?: string; copyFrom?: string } | null>(null);
+  const [batchIds, setBatchIds] = useState<string[] | null>(null);
   const [groupEditor, setGroupEditor] = useState<RouteGroup | null>(null);
   const [plan, setPlan] = useState<OperationPlan | null>(null);
   const [result, setResult] = useState<OperationResult | null>(null);
@@ -82,11 +84,11 @@ export function App() {
     return () => media.removeEventListener('change', onChange);
   }, [refresh]);
   useEffect(() => {
-    const tick = () => { if (document.visibilityState === 'visible' && document.hasFocus() && !busyRef.current && !plan && !editor && !groupEditor && !confirm) void refresh(); };
+    const tick = () => { if (document.visibilityState === 'visible' && document.hasFocus() && !busyRef.current && !plan && !editor && !batchIds && !groupEditor && !confirm) void refresh(); };
     const timer = settings.refresh_seconds ? window.setInterval(tick, settings.refresh_seconds * 1000) : undefined;
     window.addEventListener('focus', tick); document.addEventListener('visibilitychange', tick);
     return () => { clearInterval(timer); window.removeEventListener('focus', tick); document.removeEventListener('visibilitychange', tick); };
-  }, [refresh, settings.refresh_seconds, plan, editor, groupEditor, confirm]);
+  }, [refresh, settings.refresh_seconds, plan, editor, batchIds, groupEditor, confirm]);
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => { if (closeState.current.hostsDirty || closeState.current.busy) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', beforeUnload);
@@ -178,6 +180,7 @@ export function App() {
           </>}
           {page === 'library' && <LibraryPage library={library} snapshot={snapshot} stale={stale} busy={busy}
             onEdit={draft => setEditor({ draft, system: false })} onNew={() => setEditor({ draft: newConfig(), system: false })}
+            onCopy={route => setEditor({ draft: copyConfig(route, library.routes), system: false, copyFrom: route.id })} onBatchEdit={setBatchIds}
             onApply={ids => void preview({ action: 'apply', config_ids: ids })}
             onDelete={ids => setConfirm({ title: `删除 ${ids.length} 条配置？`, text: '只从配置库及分组中移除，系统中的实际路由不会被删除。', action: () => saveLibrary({ routes: library.routes.filter(r => !ids.includes(r.id)), groups: library.groups.map(g => ({ ...g, routes: g.routes.filter(id => !ids.includes(id)) })) }) })}
             onGroup={group => setGroupEditor(group ?? { id: crypto.randomUUID(), name: '', routes: [] })}
@@ -205,11 +208,15 @@ export function App() {
         <p className="muted">管理归属来自配置匹配，系统协议和创建日志提供独立的来源线索。</p>
       </> : <p>该路由已不在最新快照中。</p>}</DrawerBody>
     </OverlayDrawer>
-    {editor && <RouteEditor initial={editor.draft} interfaces={snapshot?.interfaces ?? []} system={editor.system} busy={busy} onClose={() => setEditor(null)} onSave={(draft, save) => {
+    {editor && <RouteEditor initial={editor.draft} interfaces={snapshot?.interfaces ?? []} library={library} copying={!!editor.copyFrom}
+      snapshot={snapshot} stale={stale} refreshing={refreshing} onRefresh={() => void refresh()} system={editor.system} busy={busy} onClose={() => setEditor(null)} onSave={(draft, save) => {
       if (editor.system) return preview({ action: 'upsert', draft, save_config: save, source_key: editor.sourceKey });
       const routes = library.routes.some(r => r.id === draft.id) ? library.routes.map(r => r.id === draft.id ? draft : r) : [...library.routes, draft];
-      return saveLibrary({ ...library, routes });
+      const groups = editor.copyFrom ? library.groups.map(group => group.routes.includes(editor.copyFrom!) ? { ...group, routes: [...group.routes, draft.id] } : group) : library.groups;
+      return saveLibrary({ routes, groups });
     }}/>}
+    {batchIds && <BatchConfigEditor ids={batchIds} library={library} busy={busy} snapshot={snapshot} stale={stale} refreshing={refreshing} onRefresh={() => void refresh()}
+      onClose={() => setBatchIds(null)} onSave={patch => saveLibrary({ ...library, routes: patchConfigs(library.routes, batchIds, patch) })}/>}
     {groupEditor && <GroupEditor initial={groupEditor} library={library} busy={busy} onClose={() => setGroupEditor(null)} onSave={group => saveLibrary({ ...library,
       groups: library.groups.some(g => g.id === group.id) ? library.groups.map(g => g.id === group.id ? group : g) : [...library.groups, group] })}/>}
     {plan && <PlanDialog plan={plan} busy={busy} onClose={() => setPlan(null)} onConfirm={() => void task(async () => { try { const next = await api.execute(plan.id); setResult(next); } finally { setPlan(null); libraryRevision.current += 1; routeRevision.current += 1; await refresh(true, true); } })}/>}

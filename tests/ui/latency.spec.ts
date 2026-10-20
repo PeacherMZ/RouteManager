@@ -37,7 +37,7 @@ test('配置保存不等待慢快照，旧快照不能覆盖后续保存', async
     await page.getByRole('button', { name: '新增配置', exact: true }).click();
     await page.getByRole('textbox', { name: '名称', exact: true }).fill(name);
     await page.getByRole('textbox', { name: '目标网段 / 前缀长度', exact: true }).fill(prefix);
-    await page.getByRole('textbox', { name: '网关', exact: true }).fill('192.0.2.254');
+    await page.getByRole('combobox', { name: '网关', exact: true }).fill('192.0.2.254');
     await page.getByRole('button', { name: '保存配置', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }

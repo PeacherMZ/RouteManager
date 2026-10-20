@@ -4,9 +4,10 @@ import type { HostsDocument, Library, OperationResult, RouteConfig, RouteGroup, 
 import { formatTime, stateLabels } from './domain';
 import { Empty, Icon, StateBadge } from './components';
 
-export function LibraryPage({ library, snapshot, busy, stale, onEdit, onNew, onApply, onDelete, onGroup, onDeleteGroup, onAddToGroups, onAdoptImport, onExport }: {
+export function LibraryPage({ library, snapshot, busy, stale, onEdit, onCopy, onBatchEdit, onNew, onApply, onDelete, onGroup, onDeleteGroup, onAddToGroups, onAdoptImport, onExport }: {
   library: Library; snapshot: RouteSnapshot | null; busy: boolean; stale: boolean;
   onEdit: (route: RouteConfig) => void; onNew: () => void; onApply: (ids: string[]) => void;
+  onCopy: (route: RouteConfig) => void; onBatchEdit: (ids: string[]) => void;
   onDelete: (ids: string[]) => void; onGroup: (group?: RouteGroup) => void; onDeleteGroup: (id: string) => void;
   onAdoptImport: (text: string) => void; onExport: () => void;
   onAddToGroups: (ids: string[], groups: string[]) => Promise<boolean>;
@@ -22,9 +23,11 @@ export function LibraryPage({ library, snapshot, busy, stale, onEdit, onNew, onA
   const state = (id: string) => snapshot?.matches.find(m => m.config_id === id)?.state;
   const toggle = (id: string) => setSelected(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const selectedIds = library.routes.filter(r => selected.has(r.id)).map(r => r.id);
+  const visibleSelected = routes.filter(route => selected.has(route.id)).length;
+  const hiddenSelected = selectedIds.length - visibleSelected;
   return <div className="library-layout">
     <aside className="groups-card">
-      <div className="section-heading"><span className="eyebrow">路由分组</span><Button appearance="subtle" size="small" icon={<Icon name="plus" size={16}/>} aria-label="新增分组" onClick={() => onGroup()}/></div>
+      <div className="section-heading"><span className="eyebrow">路由分组</span><Button appearance="subtle" size="small" icon={<Icon name="plus" size={16}/>} disabled={busy} aria-label="新增分组" onClick={() => onGroup()}/></div>
       <button className={`group-button ${!group ? 'active' : ''}`} onClick={() => setGroupId('')}><span>全部配置</span><span>{library.routes.length}</span></button>
       {library.groups.map(g => {
         const applied = g.routes.filter(id => state(id) === 'active').length;
@@ -39,25 +42,29 @@ export function LibraryPage({ library, snapshot, busy, stale, onEdit, onNew, onA
         <div className="button-row">{group && <><Button disabled={busy} onClick={() => onGroup(group)}>编辑分组</Button><Button disabled={busy} onClick={() => onDeleteGroup(group.id)}>删除分组</Button><Button disabled={busy || stale || !group.routes.length} onClick={() => onApply(group.routes)}>应用此组</Button></>}
         <Button appearance="primary" icon={<Icon name="plus" size={17}/>} disabled={busy} onClick={onNew}>新增配置</Button></div>
       </div>
-      <div className="table-toolbar"><Input aria-label="搜索配置" className="search-input" contentBefore={<Icon name="search" size={17}/>} placeholder="搜索配置名称、网段或备注" value={search} onChange={(_, d) => setSearch(d.value)}/>
-        <Button disabled={busy || stale || !selectedIds.length} onClick={() => onApply(selectedIds)}>应用所选</Button>
-        <Button disabled={busy || !selectedIds.length} onClick={() => { setTargetGroups([]); setAdding(true); }}>添加到分组</Button>
-        <Button disabled={busy || !selectedIds.length} onClick={() => onDelete(selectedIds)}>删除所选配置</Button>
+      <div className="table-toolbar"><Input aria-label="搜索配置" className="search-input" contentBefore={<Icon name="search" size={17}/>} placeholder="搜索名称、网段、网关或备注" value={search} onChange={(_, d) => setSearch(d.value)}/>
         <Button disabled={busy} onClick={onExport}>导出 YAML</Button>
         <label className={`file-button ${busy ? 'disabled' : ''}`}>导入 YAML<input aria-label="导入 YAML" type="file" accept=".yaml,.yml" disabled={busy} onChange={async event => {
           const file = event.target.files?.[0]; event.target.value = '';
           if (file) onAdoptImport(await file.text());
         }}/></label>
       </div>
-      <div className="table-scroll"><table className="route-table"><thead><tr><th className="check-cell"><Checkbox aria-label="选择所有当前配置" checked={routes.length > 0 && routes.every(r => selected.has(r.id))} onChange={(_, d) => setSelected(old => {
+      <div className="library-selection"><div className="selection-count"><span>已选 <strong>{selectedIds.length}</strong> 条{hiddenSelected > 0 && `（含当前筛选外 ${hiddenSelected} 条）`}</span>
+        {selectedIds.length > 0 && <Button size="small" appearance="subtle" disabled={busy} onClick={() => setSelected(new Set())}>清空选择</Button>}</div>
+        <div className="button-row"><Button disabled={busy || !selectedIds.length} onClick={() => onBatchEdit(selectedIds)}>批量修改</Button>
+          <Button disabled={busy || !selectedIds.length} onClick={() => { setTargetGroups([]); setAdding(true); }}>添加到分组</Button>
+          <Button disabled={busy || stale || !selectedIds.length} onClick={() => onApply(selectedIds)}>应用所选</Button>
+          <Button disabled={busy || !selectedIds.length} onClick={() => onDelete(selectedIds)}>删除所选配置</Button></div>
+      </div>
+      <div className="table-scroll"><table className="route-table"><thead><tr><th className="check-cell"><Checkbox aria-label="选择所有当前配置" disabled={busy || !routes.length} checked={visibleSelected > 0 && visibleSelected === routes.length ? true : visibleSelected > 0 ? 'mixed' : false} onChange={(_, d) => setSelected(old => {
         const next = new Set(old); for (const r of routes) { if (d.checked) next.add(r.id); else next.delete(r.id); } return next;
-      })}/></th><th>配置名称</th><th>目标 / 网关</th><th>实际状态</th><th>持久</th><th>备注</th><th/></tr></thead>
-        <tbody>{routes.map(route => <tr key={route.id}><td className="check-cell"><Checkbox aria-label={`选择配置 ${route.name}`} checked={selected.has(route.id)} onChange={() => toggle(route.id)}/></td>
-          <td><button className="route-link" onClick={() => onEdit(route)}>{route.name}</button><small className="muted">{route.id}</small></td>
+      })}/></th><th>配置名称</th><th>目标 / 网关</th><th>实际状态</th><th>持久</th><th>备注</th><th>操作</th></tr></thead>
+        <tbody>{routes.map(route => <tr key={route.id} className={selected.has(route.id) ? 'selected' : ''}><td className="check-cell"><Checkbox aria-label={`选择配置 ${route.name}`} disabled={busy} checked={selected.has(route.id)} onChange={() => toggle(route.id)}/></td>
+          <td><button className="route-link" disabled={busy} onClick={() => onEdit(route)}>{route.name}</button><small className="muted" title={route.interface_id ?? undefined}>{route.interface_id ? snapshot?.interfaces.find(i => i.guid === route.interface_id)?.alias ?? '已绑定接口（当前不可用）' : '自动匹配接口'}</small></td>
           <td className="mono">{route.prefix}<small className="muted">→ {route.gateway}</small></td>
           <td>{stale || !state(route.id) ? <Badge appearance="tint" color="informative">状态未知</Badge> : <StateBadge value={state(route.id)!}/>}</td>
-          <td>{route.persistent ? '重启保留' : '临时'}</td><td className="config-comment">{route.comment || '—'}</td>
-          <td><Button size="small" appearance="subtle" onClick={() => onEdit(route)}>编辑</Button></td>
+          <td>{route.persistent ? '重启保留' : '临时'}</td><td className="config-comment" title={route.comment}>{route.comment || '—'}</td>
+          <td><div className="config-actions"><Button size="small" appearance="subtle" disabled={busy} onClick={() => onEdit(route)}>编辑</Button><Button size="small" appearance="subtle" disabled={busy} onClick={() => onCopy(route)}>复制</Button></div></td>
         </tr>)}</tbody></table>
         {!routes.length && <Empty title="这里还没有配置" text="新增路由配置，或从当前路由页面将已有路由纳入管理。"/>}
       </div>
