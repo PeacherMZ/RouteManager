@@ -129,6 +129,16 @@ export function App() {
   const detail = snapshot?.routes.find(r => r.key === detailKey);
   const stale = !snapshot || !!snapshotError;
   const readHosts = () => task(async () => { const next = await api.readHosts(); setHosts(next); setHostsContent(next.content); });
+  const saveHosts = () => {
+    if (!hosts) return;
+    const submitted = hostsContent;
+    void task(async () => {
+      const next = await api.saveHosts(submitted, hosts.fingerprint);
+      setHosts(next);
+      setHostsContent(current => current === submitted ? next.content : current);
+      setNotice({ text: 'hosts 已备份并保存。', error: false });
+    });
+  };
   const navigate = (target: Page) => {
     if (hostsDirty && page === 'hosts' && target !== 'hosts') {
       setConfirm({ title: '保留未保存的 hosts 修改？', text: '内容会暂存在编辑器中，返回 hosts 页面可以继续编辑。', action: async () => { setPage(target); return true; } });
@@ -191,7 +201,7 @@ export function App() {
           {page === 'history' && <HistoryPage history={history} onDetail={setResult}/>}
           {page === 'hosts' && <HostsPage document={hosts} content={hostsContent} onContent={setHostsContent} busy={busy}
             onRead={() => { if (hostsDirty) setConfirm({ title: '放弃未保存修改并重新读取？', text: '编辑器内容将替换为系统中的 hosts 文件。', action: readHosts }); else void readHosts(); }}
-            onSave={() => void task(async () => { const next = await api.saveHosts(hostsContent, hosts!.fingerprint); setHosts(next); setHostsContent(next.content); setNotice({ text: 'hosts 已备份并保存。', error: false }); })}/>}
+            onSave={saveHosts}/>}
           {page === 'settings' && <SettingsPage settings={settings} busy={busy} onChange={(key, value) => void task(async () => { await api.saveSetting(key, value); setSettings(await api.settings()); })}/>}
         </div>
       </main>

@@ -32,6 +32,12 @@
 - PKG 首轮发现 `--component-plist` 必须配合 `--root`，已改为独立内容目录打包并通过远端复验。
 - [运行 38714669133](https://github.com/PeacherMZ/RouteManager/actions/runs/38714669133) 的 Windows/macOS 作业均成功；Windows 两种 EXE、macOS PKG 及校验文件已上传。该运行来自 main，草稿发布任务按条件跳过。
 
+## 2026-11-19：hosts 保存与路由操作状态
+
+- Windows 开发环境通过 55 项 Rust 测试、17 项前端单元测试和前端生产构建。新回归使用临时 hosts、模拟路由和独立 SQLite 数据库。
+- Chrome 通过 26 项演示交互测试，覆盖保存期间继续编辑、使用新指纹再次保存和保存失败保留草稿。
+- 本轮未执行真实系统写入、重启或安装验收：未确认可用的隔离 Windows 与 Apple Silicon macOS 测试环境。
+
 ## 尚未完成的验证
 
 - WKWebView 和 macOS 实机写入验收尚未完成。

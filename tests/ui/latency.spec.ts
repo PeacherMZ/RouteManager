@@ -1,5 +1,51 @@
 import { test, expect } from '@playwright/test';
 
+test('hosts 保存期间保留后续编辑并使用最新指纹', async ({ page }) => {
+  await page.route('**/src/demo.ts', async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/switch\s*\(command\)/, `
+      if (command === 'save_hosts') {
+        if (args.fingerprint !== hosts.fingerprint) throw new Error('hosts 指纹过期');
+        if (window.rejectHostsSave) throw new Error('模拟 hosts 保存失败');
+        if (!window.releaseHostsSave) {
+          await new Promise(resolve => { window.releaseHostsSave = resolve; });
+        }
+        window.savedHostsContent = args.content;
+      }
+      switch (command)`);
+    await route.fulfill({ response, body });
+  });
+  await page.goto('/?demo=1');
+  await page.getByRole('button', { name: 'hosts 编辑', exact: true }).click();
+  const editor = page.getByLabel('hosts 内容');
+  const save = page.getByRole('button', { name: '备份并保存', exact: true });
+  const dirty = page.getByText('未保存', { exact: true });
+  const submitted = '192.0.2.10 first.example';
+  const revised = '192.0.2.20 second.example';
+  const savedContent = () => page.evaluate(() => Reflect.get(window, 'savedHostsContent'));
+  await editor.fill(submitted);
+  await save.click();
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, 'releaseHostsSave'))).toBe('function');
+  await editor.fill(revised);
+  await page.evaluate(() => Reflect.get(window, 'releaseHostsSave')());
+  await expect(save).toBeEnabled();
+  await expect(editor).toHaveValue(revised);
+  await expect(dirty).toBeVisible();
+  expect(await savedContent()).toBe(submitted);
+
+  await save.click();
+  await expect(dirty).toHaveCount(0);
+  expect(await savedContent()).toBe(revised);
+
+  await page.evaluate(() => Reflect.set(window, 'rejectHostsSave', true));
+  await editor.fill(submitted);
+  await save.click();
+  await expect(page.getByText('模拟 hosts 保存失败')).toBeVisible();
+  await expect(editor).toHaveValue(submitted);
+  await expect(dirty).toBeVisible();
+  expect(await savedContent()).toBe(revised);
+});
+
 test('配置保存不等待慢快照，旧快照不能覆盖后续保存', async ({ page }) => {
   // Delay only the simulated OS snapshot; database operations remain available.
   await page.route('**/src/demo.ts', async route => {
