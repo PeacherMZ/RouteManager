@@ -249,6 +249,65 @@ fn authorization_cancellation_logs_failure_without_writes_and_closes_session() {
     assert_eq!(app.db.history().unwrap()[0].status, "failed");
 }
 #[test]
+fn stale_execution_does_not_consume_the_current_preview() {
+    let route = config();
+    let (_directory, mut app, state) = service(raw_with(&route), library(route));
+    let stale = app.plan(request("clear_managed")).unwrap();
+    let current = app.plan(request("clear_managed")).unwrap();
+    assert!(app.execute(&stale.id).unwrap_err().contains("预览已被更新"));
+    assert_eq!(state.lock().unwrap().writes, 0);
+    assert_eq!(app.execute(&current.id).unwrap().status, "success");
+    let writes = state.lock().unwrap().writes;
+    assert!(writes > 0);
+    assert!(app.execute(&current.id).is_err());
+    assert_eq!(state.lock().unwrap().writes, writes);
+}
+#[test]
+fn startup_recovers_running_operations_outside_the_history_window() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = Database::open(directory.path(), None).unwrap();
+    let mut operation = OperationResult {
+        id: "old-running".into(),
+        started_at: "2025-01-01T00:00:00Z".into(),
+        finished_at: String::new(),
+        status: "running".into(),
+        items: Vec::new(),
+    };
+    db.record(&operation).unwrap();
+    operation.finished_at = "2025-01-02T00:00:01Z".into();
+    operation.status = "success".into();
+    for index in 0..500 {
+        operation.id = format!("finished-{index}");
+        operation.started_at = format!("2025-01-02T00:{:02}:{:02}Z", index / 60, index % 60);
+        db.record(&operation).unwrap();
+    }
+    let completed = serde_json::to_value(db.history().unwrap()).unwrap();
+    drop(db);
+
+    let read_recovered = |db: &Database| -> OperationResult {
+        let body: String = db
+            .connection
+            .query_row(
+                "SELECT body FROM operations WHERE id='old-running'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        serde_json::from_str(&body).unwrap()
+    };
+    let db = Database::open(directory.path(), None).unwrap();
+    let recovered = read_recovered(&db);
+    assert_eq!(recovered.status, "interrupted");
+    assert!(!recovered.finished_at.is_empty());
+    assert_eq!(
+        serde_json::to_value(db.history().unwrap()).unwrap(),
+        completed
+    );
+    drop(db);
+    let db = Database::open(directory.path(), None).unwrap();
+    assert_eq!(read_recovered(&db).finished_at, recovered.finished_at);
+}
+#[test]
 fn legacy_migration_preserves_routes_and_group_order_and_is_idempotent() {
     let directory = tempfile::tempdir().unwrap();
     let source =
@@ -604,6 +663,37 @@ fn hosts_detects_external_changes_without_overwrite() {
     std::fs::write(&path, "external").unwrap();
     assert!(hosts::save(&path, directory.path(), "new", &document.fingerprint).is_err());
     assert_eq!(std::fs::read_to_string(path).unwrap(), "external");
+}
+#[test]
+fn hosts_enforces_the_encoded_byte_limit_before_backup_or_replacement() {
+    let limit = 2 * 1024 * 1024;
+    let directory = tempfile::tempdir().unwrap();
+    let backups = directory.path().join("backups");
+    std::fs::create_dir(&backups).unwrap();
+    let path = directory.path().join("hosts");
+    for (original, content) in [
+        (b"\xff\xfe#\0".as_slice(), "#".repeat(limit / 2)),
+        (b"#\r\n".as_slice(), "\n".repeat(limit / 2 + 1)),
+    ] {
+        std::fs::write(&path, original).unwrap();
+        let document = hosts::read(&path).unwrap();
+        let error =
+            hosts::save(&path, directory.path(), &content, &document.fingerprint).unwrap_err();
+        assert!(error.contains("编码后的 hosts"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 0);
+    }
+    let document = hosts::read(&path).unwrap();
+    let saved = hosts::save(
+        &path,
+        directory.path(),
+        &"\n".repeat(limit / 2),
+        &document.fingerprint,
+    )
+    .unwrap();
+    assert_eq!(saved.content.len(), limit);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), limit as u64);
+    assert_eq!(std::fs::read_dir(backups).unwrap().count(), 1);
 }
 #[test]
 fn hosts_preserves_utf16() {

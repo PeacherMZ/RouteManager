@@ -1,6 +1,8 @@
 use crate::model::{hash, HostsDocument};
 use std::path::{Path, PathBuf};
 
+const MAX_HOSTS_BYTES: usize = 2 * 1024 * 1024;
+
 pub fn system_hosts_path() -> Result<PathBuf, String> {
     #[cfg(target_os = "macos")]
     return Ok(PathBuf::from("/etc/hosts"));
@@ -103,7 +105,7 @@ fn encode(text: &str, encoding: &str) -> Result<Vec<u8>, String> {
 }
 pub fn read(path: &Path) -> Result<HostsDocument, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    if bytes.len() > 2 * 1024 * 1024 {
+    if bytes.len() > MAX_HOSTS_BYTES {
         return Err("hosts 文件大于 2 MB".into());
     }
     let (content, encoding) = decode(&bytes)?;
@@ -127,7 +129,7 @@ pub fn save(
     content: &str,
     expected: &str,
 ) -> Result<HostsDocument, String> {
-    if content.len() > 2 * 1024 * 1024 || content.contains('\0') {
+    if content.len() > MAX_HOSTS_BYTES || content.contains('\0') {
         return Err("hosts 内容过大或包含空字符".into());
     }
     let original = read(path)?;
@@ -141,6 +143,9 @@ pub fn save(
         normalized
     };
     let bytes = encode(&text, &original.encoding)?;
+    if bytes.len() > MAX_HOSTS_BYTES {
+        return Err("编码后的 hosts 文件大于 2 MB，未修改 hosts".into());
+    }
     let backup = data_dir
         .join("backups")
         .join(format!("hosts-{}.bak", uuid::Uuid::new_v4()));

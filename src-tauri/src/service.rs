@@ -156,10 +156,11 @@ impl AppService {
         result
     }
     fn execute_inner(&mut self, plan_id: &str) -> Result<OperationResult, String> {
-        let plan = self.pending.take().ok_or("预览已失效，请重新预览")?;
-        if plan.id != plan_id {
+        let pending = self.pending.as_ref().ok_or("预览已失效，请重新预览")?;
+        if pending.id != plan_id {
             return Err("预览已被更新，请重新确认".into());
         }
+        let plan = self.pending.take().ok_or("预览已失效，请重新预览")?;
         let created =
             chrono::DateTime::parse_from_rfc3339(&plan.created_at).map_err(|e| e.to_string())?;
         if (chrono::Utc::now() - created.with_timezone(&chrono::Utc)).num_minutes() >= 10 {

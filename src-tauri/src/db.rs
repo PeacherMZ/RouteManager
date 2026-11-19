@@ -84,14 +84,18 @@ impl Database {
             tx.commit().map_err(|e| e.to_string())?;
         }
         // A process termination must never turn an unverified operation into a success.
-        for mut operation in db.history()? {
-            if operation.status == "running" {
-                operation.status = "interrupted".into();
-                operation.finished_at = now();
-                db.record(&operation)?;
-            }
-        }
+        db.recover_interrupted_operations()?;
         Ok(db)
+    }
+    fn recover_interrupted_operations(&self) -> Result<(), String> {
+        self.connection
+            .execute(
+                "UPDATE operations SET body = json_set(body, '$.status', 'interrupted', '$.finished_at', ?1)
+                 WHERE json_extract(body, '$.status') = 'running'",
+                [now()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
     pub fn backup(&self, label: &str) -> Result<String, String> {
         let path = self.data_dir.join("backups").join(format!(
